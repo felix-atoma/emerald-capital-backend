@@ -151,6 +151,84 @@ export const login = async (req, res, next) => {
   }
 };
 
+// ✅ NEW: Admin Login Function
+export const adminLogin = async (req, res, next) => {
+  try {
+    // Validate request body
+    const { error } = validateUserLogin(req.body);
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.details[0].message,
+      });
+    }
+
+    const { username, password } = req.body;
+
+    // Find user and include password for verification
+    const user = await User.findOne({
+      $or: [
+        { username },
+        { email: username },
+        { accountNumber: username }
+      ]
+    }).select('+password');
+
+    // Check if user exists
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid admin credentials',
+      });
+    }
+
+    // Check if user is admin
+    if (user.role !== 'admin') {
+      return res.status(401).json({
+        success: false,
+        message: 'Access denied. Admin privileges required.',
+      });
+    }
+
+    // Verify password
+    if (!(await user.correctPassword(password, user.password))) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid username or password',
+      });
+    }
+
+    // Check if account is active
+    if (!user.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Your admin account has been deactivated. Please contact support.',
+      });
+    }
+
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+
+    // Generate token
+    const tokens = generateAuthTokens(user);
+
+    // Remove password from output
+    user.password = undefined;
+
+    res.json({
+      success: true,
+      message: 'Admin login successful',
+      data: {
+        user,
+        tokens,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const getProfile = async (req, res, next) => {
   try {
     const user = await User.findById(req.user.id);
