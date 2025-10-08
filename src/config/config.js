@@ -32,10 +32,18 @@ const config = {
     maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024, // 5MB
   },
 
-  // CORS Configuration
+  // CORS Configuration - FIXED
   cors: {
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: process.env.NODE_ENV === 'production' 
+      ? process.env.CLIENT_URL || 'https://emerald-capital-u8zr.vercel.app'
+      : [
+          'http://localhost:5173',
+          'http://localhost:3000',
+          'http://localhost:5174',
+          process.env.CLIENT_URL || 'https://emerald-capital-u8zr.vercel.app'
+        ],
     credentials: true,
+    optionsSuccessStatus: 200
   },
 };
 
