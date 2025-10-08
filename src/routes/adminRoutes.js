@@ -6,15 +6,10 @@ import {
   updateUser,
   deleteUser,
 } from '../controllers/adminController.js';
-import { adminLogin } from '../controllers/authController.js';
 import { authenticate, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
 
-// ✅ PUBLIC ROUTE - Admin Login (no authentication required)
-router.post('/login', adminLogin);
-
-// ✅ PROTECTED ROUTES - All routes below require authentication + admin role
 router.use(authenticate);
 router.use(authorize('admin'));
 

@@ -1,3 +1,4 @@
+// models/User.js
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import validator from 'validator';
@@ -200,9 +201,9 @@ userSchema.pre('save', async function(next) {
   next();
 });
 
-// Instance method to check password
-userSchema.methods.correctPassword = async function(candidatePassword, userPassword) {
-  return await bcrypt.compare(candidatePassword, userPassword);
+// FIXED: Instance method to check password - only one parameter needed
+userSchema.methods.correctPassword = async function(candidatePassword) {
+  return await bcrypt.compare(candidatePassword, this.password);
 };
 
 // Instance method to check if user changed password after token was issued

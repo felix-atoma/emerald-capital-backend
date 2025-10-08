@@ -61,28 +61,6 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// ✅ ADD THIS ROOT ROUTE - Fixes the 404 error
-app.get('/', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: '🚀 Welcome to Emerald Capital API',
-    description: 'Financial services and loan management system',
-    version: '1.0.0',
-    timestamp: new Date().toISOString(),
-    status: 'operational',
-    environment: config.nodeEnv,
-    availableEndpoints: {
-      health: '/api/health',
-      authentication: '/api/auth',
-      loans: '/api/loans',
-      contact: '/api/contact',
-      newsletter: '/api/newsletter',
-      admin: '/api/admin'
-    },
-    documentation: 'Available at /api/health'
-  });
-});
-
 // API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/loans', loanRoutes);

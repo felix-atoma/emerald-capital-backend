@@ -34,10 +34,7 @@ const config = {
 
   // CORS Configuration
   cors: {
-    allowedOrigins: [
-      'http://localhost:5173',                       // local dev
-      'https://emerald-capital-u8zr.vercel.app',    // production frontend
-    ],
+    origin: process.env.CLIENT_URL || 'http://localhost:3000',
     credentials: true,
   },
 };
