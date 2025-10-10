@@ -114,7 +114,8 @@ export const login = async (req, res, next) => {
       ]
     }).select('+password');
 
-    if (!user || !(await user.correctPassword(password, user.password))) {
+    // ✅ FIXED: Changed from correctPassword(password, user.password) to correctPassword(password)
+    if (!user || !(await user.correctPassword(password))) {
       return res.status(401).json({
         success: false,
         message: 'Invalid username or password',
@@ -218,7 +219,8 @@ export const changePassword = async (req, res, next) => {
 
     const user = await User.findById(req.user.id).select('+password');
 
-    if (!(await user.correctPassword(currentPassword, user.password))) {
+    // ✅ FIXED: Changed from correctPassword(currentPassword, user.password) to correctPassword(currentPassword)
+    if (!(await user.correctPassword(currentPassword))) {
       return res.status(401).json({
         success: false,
         message: 'Current password is incorrect',
