@@ -2,7 +2,106 @@ import User from '../models/User.js';
 import LoanApplication from '../models/LoanApplication.js';
 import ContactMessage from '../models/ContactMessage.js';
 import Newsletter from '../models/Newsletter.js';
+import jwt from 'jsonwebtoken';
 
+// 🔐 ADMIN LOGIN FUNCTION - ADD THIS
+export const adminLogin = async (req, res) => {
+  try {
+    const { username, password } = req.body;
+
+    console.log('🔐 Admin login attempt for:', username);
+
+    // Validate input
+    if (!username || !password) {
+      return res.status(400).json({
+        success: false,
+        message: 'Username and password are required'
+      });
+    }
+
+    // Find admin user
+    const admin = await User.findOne({ 
+      username: username.trim().toLowerCase(),
+      role: { $in: ['admin', 'officer'] }
+    }).select('+password');
+
+    if (!admin) {
+      console.log('❌ Admin user not found:', username);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    // Check if user is active
+    if (!admin.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: 'Account is deactivated'
+      });
+    }
+
+    // Check password
+    const isPasswordValid = await admin.correctPassword(password);
+    if (!isPasswordValid) {
+      console.log('❌ Invalid password for admin:', username);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    // Generate token
+    const token = jwt.sign(
+      { 
+        id: admin._id, 
+        username: admin.username,
+        role: admin.role,
+        email: admin.email
+      }, 
+      process.env.JWT_SECRET, 
+      { expiresIn: '24h' }
+    );
+
+    console.log('✅ Admin login successful for:', username);
+
+    // Update last login
+    admin.lastLogin = new Date();
+    await admin.save();
+
+    // Return admin data without password
+    const adminData = {
+      id: admin._id,
+      username: admin.username,
+      email: admin.email,
+      firstName: admin.firstName,
+      lastName: admin.lastName,
+      role: admin.role,
+      isActive: admin.isActive,
+      lastLogin: admin.lastLogin
+    };
+
+    res.json({
+      success: true,
+      message: 'Admin login successful',
+      data: {
+        user: adminData,
+        tokens: {
+          access: token
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Admin login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error during login'
+    });
+  }
+};
+
+// EXISTING FUNCTIONS (keep all your existing functions below)
 export const getDashboardStats = async (req, res, next) => {
   try {
     // Get user statistics

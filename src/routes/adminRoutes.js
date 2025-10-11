@@ -1,5 +1,6 @@
 import express from 'express';
 import {
+  adminLogin,  // ADD THIS IMPORT
   getDashboardStats,
   getUsers,
   getUser,
@@ -10,6 +11,10 @@ import { authenticate, authorize } from '../middleware/auth.js';
 
 const router = express.Router();
 
+// 🔓 PUBLIC ROUTE - Admin login (MUST be before authentication)
+router.post('/login', adminLogin);
+
+// 🔒 PROTECTED ROUTES - Everything below requires authentication
 router.use(authenticate);
 router.use(authorize('admin'));
 
