@@ -1,4 +1,3 @@
-// models/User.js
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import validator from 'validator';
@@ -161,10 +160,8 @@ const userSchema = new mongoose.Schema({
     minlength: [8, 'Password must be at least 8 characters'],
     select: false,
   },
-  accountNumber: {
-    type: String,
-    unique: true,
-  },
+  
+  // REMOVED: accountNumber field - now handled by Account model
   
   // Account Status
   isVerified: {
@@ -188,10 +185,11 @@ const userSchema = new mongoose.Schema({
 });
 
 // Indexes for better query performance
-userSchema.index({ email: 1 });
-userSchema.index({ ghanaCardNumber: 1 });
 userSchema.index({ phone: 1 });
-userSchema.index({ username: 1 });
+userSchema.index({ isActive: 1 });
+userSchema.index({ role: 1 });
+userSchema.index({ createdAt: -1 });
+
 
 // Pre-save middleware to hash password
 userSchema.pre('save', async function(next) {
@@ -201,7 +199,7 @@ userSchema.pre('save', async function(next) {
   next();
 });
 
-// FIXED: Instance method to check password - only one parameter needed
+// Instance method to check password
 userSchema.methods.correctPassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };

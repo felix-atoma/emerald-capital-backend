@@ -1,13 +1,19 @@
 import User from '../models/User.js';
+import Account from '../models/Account.js'; // Import Account model
 import { generateAuthTokens } from '../utils/tokenGenerator.js';
 import { generateAccountNumber } from '../utils/accountNumberGenerator.js';
 import { validateUserRegistration, validateUserLogin } from '../middleware/validation.js';
 
 export const register = async (req, res, next) => {
+  const session = await User.startSession();
+  session.startTransaction();
+
   try {
     // Validate request body
     const { error } = validateUserRegistration(req.body);
     if (error) {
+      await session.abortTransaction();
+      session.endSession();
       return res.status(400).json({
         success: false,
         message: error.details[0].message,
@@ -32,6 +38,9 @@ export const register = async (req, res, next) => {
     });
 
     if (existingUser) {
+      await session.abortTransaction();
+      session.endSession();
+      
       let field = 'user';
       if (existingUser.email === email) field = 'email';
       else if (existingUser.ghanaCardNumber === ghanaCardNumber) field = 'Ghana Card number';
@@ -47,8 +56,8 @@ export const register = async (req, res, next) => {
     // Generate account number
     const accountNumber = generateAccountNumber();
 
-    // Create user
-    const user = await User.create({
+    // Create user (without accountNumber field)
+    const user = await User.create([{
       sex,
       firstName,
       lastName,
@@ -70,24 +79,43 @@ export const register = async (req, res, next) => {
       lastMonthPay,
       username,
       password,
-      accountNumber,
-    });
+      // REMOVED: accountNumber field
+    }], { session });
+
+    // Create account in Account collection
+    const account = await Account.create([{
+      user: user[0]._id,
+      balance: 0.00,
+      accountNumber: accountNumber,
+      currency: 'GHS'
+    }], { session });
+
+    // Commit transaction
+    await session.commitTransaction();
+    session.endSession();
 
     // Generate token
-    const tokens = generateAuthTokens(user);
+    const tokens = generateAuthTokens(user[0]);
 
     // Remove password from output
-    user.password = undefined;
+    user[0].password = undefined;
 
     res.status(201).json({
       success: true,
       message: 'User registered successfully',
       data: {
-        user,
+        user: user[0],
+        account: {
+          accountNumber: account[0].accountNumber,
+          balance: account[0].balance,
+          currency: account[0].currency
+        },
         tokens,
       },
     });
   } catch (error) {
+    await session.abortTransaction();
+    session.endSession();
     next(error);
   }
 };
@@ -109,12 +137,10 @@ export const login = async (req, res, next) => {
     const user = await User.findOne({
       $or: [
         { username },
-        { email: username },
-        { accountNumber: username }
+        { email: username }
       ]
     }).select('+password');
 
-    // ✅ FIXED: Changed from correctPassword(password, user.password) to correctPassword(password)
     if (!user || !(await user.correctPassword(password))) {
       return res.status(401).json({
         success: false,
@@ -219,7 +245,6 @@ export const changePassword = async (req, res, next) => {
 
     const user = await User.findById(req.user.id).select('+password');
 
-    // ✅ FIXED: Changed from correctPassword(currentPassword, user.password) to correctPassword(currentPassword)
     if (!(await user.correctPassword(currentPassword))) {
       return res.status(401).json({
         success: false,
@@ -234,6 +259,63 @@ export const changePassword = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Password changed successfully',
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// Function to fix existing users without accounts
+export const createMissingAccounts = async (req, res, next) => {
+  try {
+    const usersWithoutAccounts = await User.aggregate([
+      {
+        $lookup: {
+          from: 'accounts',
+          localField: '_id',
+          foreignField: 'user',
+          as: 'accounts'
+        }
+      },
+      {
+        $match: {
+          'accounts.0': { $exists: false }
+        }
+      }
+    ]);
+
+    const results = [];
+    
+    for (const user of usersWithoutAccounts) {
+      try {
+        const accountNumber = generateAccountNumber();
+        const account = await Account.create({
+          user: user._id,
+          balance: 0.00,
+          accountNumber: accountNumber,
+          currency: 'GHS'
+        });
+        
+        results.push({
+          userId: user._id,
+          email: user.email,
+          accountNumber: account.accountNumber,
+          status: 'success'
+        });
+      } catch (error) {
+        results.push({
+          userId: user._id,
+          email: user.email,
+          status: 'failed',
+          error: error.message
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Processed ${usersWithoutAccounts.length} users without accounts`,
+      data: results
     });
   } catch (error) {
     next(error);

@@ -7,9 +7,10 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
+    
+    
     "create-admin": "node scripts/createAdmin.js",
     "create-test-user": "node scripts/createTestUser.js",
-    "setup-db": "node scripts/setup.js",
     "test-login": "node scripts/testLogin.js",
     "test-bcrypt": "node scripts/testBcryptDirectly.js",
     "check-user-model": "node scripts/checkUserModel.js",
@@ -23,9 +24,44 @@
     "verify-fix": "node scripts/verifyFix.js",
     "fix-passwords": "node scripts/fixPasswords.js",
     "test-user-model": "node scripts/testUserModel.js",
+    
+    
+    "fix-accounts": "node scripts/fixExistingAccounts.js",
+    "test-connection": "node scripts/testConnection.js",
+    "create-account": "node scripts/createAccountForUser.js",
+    "check-structure": "node scripts/checkStructure.js",
+    "create-sample-transactions": "node scripts/createSampleTransactions.js",
+    "create-test-recipient": "node scripts/createTestRecipient.js",
+    "check-recipient": "node scripts/checkRecipientAccount.js",
+    "emergency-fix-accounts": "node scripts/emergencyFixAccounts.js",
+    
+    
+    "debug-transfer": "node scripts/debugTransfer.js",
+    "simple-transfer-test": "node scripts/simpleTransferTest.js",
+    "test-fixed-transfer": "node scripts/testFixedTransfer.js",
+    "debug-transfer-controller": "node scripts/debugTransferController.js",
+    
+    
+    "debug-transaction-stats": "node scripts/debugTransactionStats.js",
+    "debug-transaction-model": "node scripts/debugTransactionModel.js",
+    "test-transaction-model": "node scripts/testTransactionModel.js",
+    "test-fixed-transaction-model": "node scripts/testFixedTransactionModel.js",
+    "emergency-transaction": "node scripts/emergencyTransactionCreator.js",
+    
+    
+    "check-server": "node scripts/checkServer.js",
+    "monitor-server": "node scripts/monitorServer.js",
+    "test-transfer-endpoint": "node scripts/testTransferEndpoint.js",
+    
+    
+    "test-insufficient-funds": "node scripts/testInsufficientFunds.js",
+    
+    
     "debug-test": "node debug-test.js",
     "test-fixed": "node test-endpoints-fixed.js",
-    "test": "node test-endpoints.js"
+    "test": "node test-endpoints.js",
+    "setup-db": "node scripts/setup.js",
+     "add-test-funds": "node scripts/addTestFunds.js"
   },
   "keywords": [
     "loan",

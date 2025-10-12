@@ -14,6 +14,7 @@ import loanRoutes from './routes/loanRoutes.js';
 import contactRoutes from './routes/contactRoutes.js';
 import newsletterRoutes from './routes/newsletterRoutes.js';
 import adminRoutes from './routes/adminRoutes.js';
+import accountRoutes from './routes/account.js'; // Add account routes
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -67,6 +68,7 @@ app.use('/api/loans', loanRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/account', accountRoutes); // Add account routes
 
 // Serve static files in production
 if (config.nodeEnv === 'production') {
