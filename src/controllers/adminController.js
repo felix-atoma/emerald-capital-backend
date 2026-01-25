@@ -4,7 +4,7 @@ import ContactMessage from '../models/ContactMessage.js';
 import Newsletter from '../models/Newsletter.js';
 import jwt from 'jsonwebtoken';
 
-// 🔐 ADMIN LOGIN FUNCTION - ADD THIS
+// 🔐 ADMIN LOGIN FUNCTION
 export const adminLogin = async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -101,8 +101,137 @@ export const adminLogin = async (req, res) => {
   }
 };
 
-// EXISTING FUNCTIONS (keep all your existing functions below)
-export const getDashboardStats = async (req, res, next) => {
+// 👤 GET ADMIN PROFILE
+export const getAdminProfile = async (req, res) => {
+  try {
+    const adminId = req.user.id; // From authentication middleware
+
+    const admin = await User.findById(adminId).select('-password');
+    
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin profile not found'
+      });
+    }
+
+    // Check if user has admin role
+    if (!['admin', 'officer'].includes(admin.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        user: {
+          id: admin._id,
+          username: admin.username,
+          email: admin.email,
+          firstName: admin.firstName,
+          lastName: admin.lastName,
+          role: admin.role,
+          isActive: admin.isActive,
+          lastLogin: admin.lastLogin,
+          createdAt: admin.createdAt,
+          updatedAt: admin.updatedAt
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get admin profile error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching profile'
+    });
+  }
+};
+
+// 🔑 CHANGE ADMIN PASSWORD
+export const changeAdminPassword = async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    const adminId = req.user.id; // From authentication middleware
+
+    console.log('🔄 Admin password change request for ID:', adminId);
+
+    // Validate input
+    if (!currentPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'Current password and new password are required'
+      });
+    }
+
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be at least 6 characters long'
+      });
+    }
+
+    // Find admin user
+    const admin = await User.findById(adminId).select('+password');
+    
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: 'Admin user not found'
+      });
+    }
+
+    // Check if user has admin role
+    if (!['admin', 'officer'].includes(admin.role)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Unauthorized access'
+      });
+    }
+
+    // Verify current password
+    const isPasswordValid = await admin.correctPassword(currentPassword);
+    if (!isPasswordValid) {
+      console.log('❌ Invalid current password for admin:', admin.username);
+      return res.status(401).json({
+        success: false,
+        message: 'Current password is incorrect'
+      });
+    }
+
+    // Check if new password is same as current
+    const isSamePassword = await admin.correctPassword(newPassword);
+    if (isSamePassword) {
+      return res.status(400).json({
+        success: false,
+        message: 'New password must be different from current password'
+      });
+    }
+
+    // Update password
+    admin.password = newPassword;
+    await admin.save();
+
+    console.log('✅ Admin password changed successfully for:', admin.username);
+
+    res.json({
+      success: true,
+      message: 'Password changed successfully'
+    });
+
+  } catch (error) {
+    console.error('Change admin password error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while changing password'
+    });
+  }
+};
+
+// 📊 DASHBOARD STATISTICS
+export const getDashboardStats = async (req, res) => {
   try {
     // Get user statistics
     const totalUsers = await User.countDocuments();
@@ -172,21 +301,38 @@ export const getDashboardStats = async (req, res, next) => {
       },
     });
   } catch (error) {
-    next(error);
+    console.error('Get dashboard stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching dashboard statistics'
+    });
   }
 };
 
-export const getUsers = async (req, res, next) => {
+// 👥 GET ALL USERS
+export const getUsers = async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
     const role = req.query.role;
     const isActive = req.query.isActive;
+    const search = req.query.search;
 
     const filter = {};
+    
     if (role) filter.role = role;
     if (isActive !== undefined) filter.isActive = isActive === 'true';
+    
+    // Add search functionality
+    if (search) {
+      filter.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+        { username: { $regex: search, $options: 'i' } }
+      ];
+    }
 
     const users = await User.find(filter)
       .select('-password')
@@ -209,11 +355,16 @@ export const getUsers = async (req, res, next) => {
       },
     });
   } catch (error) {
-    next(error);
+    console.error('Get users error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching users'
+    });
   }
 };
 
-export const getUser = async (req, res, next) => {
+// 👤 GET SINGLE USER
+export const getUser = async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select('-password');
 
@@ -237,18 +388,26 @@ export const getUser = async (req, res, next) => {
       },
     });
   } catch (error) {
-    next(error);
+    console.error('Get user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching user'
+    });
   }
 };
 
-export const updateUser = async (req, res, next) => {
+// ✏️ UPDATE USER
+export const updateUser = async (req, res) => {
   try {
-    const { role, isActive, isVerified } = req.body;
+    const { role, isActive, isVerified, firstName, lastName, email } = req.body;
 
     const updates = {};
     if (role) updates.role = role;
     if (isActive !== undefined) updates.isActive = isActive;
     if (isVerified !== undefined) updates.isVerified = isVerified;
+    if (firstName) updates.firstName = firstName;
+    if (lastName) updates.lastName = lastName;
+    if (email) updates.email = email;
 
     const user = await User.findByIdAndUpdate(
       req.params.id,
@@ -271,11 +430,16 @@ export const updateUser = async (req, res, next) => {
       },
     });
   } catch (error) {
-    next(error);
+    console.error('Update user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while updating user'
+    });
   }
 };
 
-export const deleteUser = async (req, res, next) => {
+// 🗑️ DELETE USER
+export const deleteUser = async (req, res) => {
   try {
     const user = await User.findByIdAndDelete(req.params.id);
 
@@ -291,6 +455,10 @@ export const deleteUser = async (req, res, next) => {
       message: 'User deleted successfully',
     });
   } catch (error) {
-    next(error);
+    console.error('Delete user error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while deleting user'
+    });
   }
 };
