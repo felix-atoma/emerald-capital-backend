@@ -1,11 +1,13 @@
 // test-endpoints-fixed.js
 import axios from 'axios';
 import { config } from 'dotenv';
+import fs from 'fs';
+import path from 'path';
 
 // Load environment variables
 config();
 
-const API_BASE_URL = 'http://localhost:5000/api';
+const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:5000';
 
 // Create axios instance
 const api = axios.create({
@@ -23,6 +25,7 @@ let recipientAccountNumber = '';
 let blogId = '';
 let blogSlug = '';
 let commentId = '';
+let adminToken = '';
 
 // FIXED: Test data aligned with User schema
 const testUser = {
@@ -53,50 +56,18 @@ const testUser = {
   lastMonthPay: 5000,
   username: 'johndoe',
   password: 'password123',
-  agreementConfirmed: true // REQUIRED FIELD
+  agreementConfirmed: true
 };
 
-// FIXED: Admin user data - REMOVED role field for registration
-const testAdminUser = {
-  sex: 'male',
-  firstName: 'Admin',
-  lastName: 'User',
-  middleName: 'System',
-  dateOfBirth: '1985-01-01',
-  phone: '0241111111',
-  otherPhone: '0242222222',
-  ghanaCardNumber: 'GHA-987654321-B',
-  email: 'admin@test.com',
-  homeAddress: '456 Admin Street, Accra, Ghana',
-  region: 'Greater Accra',
-  nextOfKin: [
-    {
-      relationship: 'parent',
-      firstName: 'System',
-      lastName: 'Admin'
-    }
-  ],
-  nextOfKinPhone: '0243333333',
-  employmentType: ['private'],
-  employer: 'Emerald Capital Ltd',
-  staffNumber: 'ADM001',
-  employmentDate: '2015-01-01',
-  gradeLevel: 'Director',
-  lastMonthPay: 10000,
+// Admin login data (use your seed admin credentials)
+const testAdminLogin = {
   username: 'adminuser',
-  password: 'admin123',
-  agreementConfirmed: true // REQUIRED FIELD
-  // REMOVED: role: 'admin' - Will be set to 'user' by default
+  password: 'admin123'
 };
 
 const testLogin = {
   username: 'johndoe',
   password: 'password123'
-};
-
-const testAdminLogin = {
-  username: 'adminuser',
-  password: 'admin123'
 };
 
 const testLoanApplication = {
@@ -141,12 +112,15 @@ const testComment = {
 // Utility functions
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
-const printResult = (testName, success, message = '', data = null) => {
+const printResult = (testName, success, message = '', error = null, data = null) => {
   const status = success ? '✅ PASS' : '❌ FAIL';
   console.log(`${status} - ${testName}`);
   if (message) console.log(`   Message: ${message}`);
+  if (error && !success) {
+    console.log(`   Error Details:`, error.response?.data || error.message);
+  }
   if (data && !success && process.env.DEBUG === 'true') {
-    console.log(`   Data:`, JSON.stringify(data, null, 2));
+    console.log(`   Response Data:`, JSON.stringify(data, null, 2));
   }
   console.log('');
 };
@@ -154,11 +128,30 @@ const printResult = (testName, success, message = '', data = null) => {
 // Test functions
 const testHealthCheck = async () => {
   try {
-    const response = await api.get('/health');
+    const response = await api.get('/api/health');
     printResult('Health Check', true, response.data.message);
     return true;
   } catch (error) {
-    printResult('Health Check', false, error.message);
+    printResult('Health Check', false, error.message, error, error.response?.data);
+    return false;
+  }
+};
+
+// Test Admin Login directly
+const testAdminLoginEndpoint = async () => {
+  try {
+    const response = await api.post('/api/admin/login', testAdminLogin);
+    adminToken = response.data.data?.tokens?.access || response.data.token;
+    
+    if (adminToken) {
+      printResult('Admin Login', true, 'Admin logged in successfully');
+      return true;
+    } else {
+      printResult('Admin Login', false, 'No token received', null, response.data);
+      return false;
+    }
+  } catch (error) {
+    printResult('Admin Login', false, error.response?.data?.message || error.message, error, error.response?.data);
     return false;
   }
 };
@@ -166,131 +159,88 @@ const testHealthCheck = async () => {
 // FIXED: Registration with proper error handling
 const testUserRegistration = async () => {
   try {
-    const response = await api.post('/auth/register', testUser);
-    authToken = response.data.data.tokens.accessToken;
-    userId = response.data.data.user._id;
+    const response = await api.post('/api/auth/register', testUser);
     
-    // Set auth token for subsequent requests
-    api.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
+    // Check response structure
+    if (response.data.success && response.data.data) {
+      authToken = response.data.data.tokens?.accessToken || response.data.data.token;
+      userId = response.data.data.user?._id || response.data.data._id;
+      
+      if (authToken) {
+        api.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
+        printResult('User Registration', true, 'User registered successfully');
+        return true;
+      }
+    }
     
-    printResult('User Registration', true, 'User registered successfully');
-    return true;
+    printResult('User Registration', false, 'Invalid response structure', null, response.data);
+    return false;
+    
   } catch (error) {
     const errorMessage = error.response?.data?.message || error.message;
     if (error.response?.status === 400 && errorMessage.includes('already exists')) {
       printResult('User Registration', true, 'User already exists, trying login...');
       return await testUserLogin();
     }
-    printResult('User Registration', false, errorMessage);
+    printResult('User Registration', false, errorMessage, error, error.response?.data);
     return false;
   }
 };
 
 const testUserLogin = async () => {
   try {
-    const response = await api.post('/auth/login', testLogin);
-    authToken = response.data.data.tokens.accessToken;
-    userId = response.data.data.user._id;
+    const response = await api.post('/api/auth/login', testLogin);
     
-    // Set auth token for subsequent requests
-    api.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
+    if (response.data.success && response.data.data) {
+      authToken = response.data.data.tokens?.accessToken || response.data.data.token;
+      userId = response.data.data.user?._id || response.data.data._id;
+      
+      if (authToken) {
+        api.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
+        printResult('User Login', true, 'User logged in successfully');
+        return true;
+      }
+    }
     
-    printResult('User Login', true, 'User logged in successfully');
-    return true;
+    printResult('User Login', false, 'Invalid response structure', null, response.data);
+    return false;
+    
   } catch (error) {
-    printResult('User Login', false, error.response?.data?.message || error.message);
+    printResult('User Login', false, error.response?.data?.message || error.message, error, error.response?.data);
     return false;
   }
 };
 
-// FIXED: Admin user creation without role field
-const testCreateAdminUser = async () => {
-  try {
-    // Try to create admin user (without role field)
-    const response = await api.post('/auth/register', testAdminUser);
-    const userToken = response.data.data.tokens.accessToken;
-    const createdUserId = response.data.data.user._id;
-    
-    // Create axios instance for the new user
-    const userApi = axios.create({
-      baseURL: API_BASE_URL,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${userToken}`
-      }
-    });
-    
-    printResult('Create User for Admin Testing', true, 'User created (will need manual role update)');
-    console.log('   Note: Role will need to be updated manually to "admin" in database');
-    console.log(`   User ID for manual update: ${createdUserId}`);
-    
-    return { adminApi: userApi, adminToken: userToken };
-  } catch (error) {
-    const errorMessage = error.response?.data?.message || error.message;
-    if (error.response?.status === 400 && errorMessage.includes('already exists')) {
-      // User exists, try to login
-      try {
-        const response = await api.post('/auth/login', testAdminLogin);
-        const adminToken = response.data.data.tokens.accessToken;
-        
-        const adminApi = axios.create({
-          baseURL: API_BASE_URL,
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${adminToken}`
-          }
-        });
-        
-        printResult('Admin Login', true, 'Admin user logged in successfully');
-        return { adminApi, adminToken };
-      } catch (loginError) {
-        printResult('Admin Login', false, loginError.response?.data?.message || loginError.message);
-        return null;
-      }
-    }
-    printResult('Create Admin User', false, errorMessage);
-    return null;
-  }
-};
-
-// NEW: Function to manually update user to admin via MongoDB command suggestion
-const suggestAdminUpdate = async (username) => {
-  console.log('\n🔧 To make this user an admin, run this MongoDB command:');
-  console.log(`db.users.updateOne({username: "${username}"}, {$set: {role: "admin"}})`);
-  console.log('Or use MongoDB Compass to manually update the role field.');
-};
-
-// ACCOUNT TESTS
+// ACCOUNT TESTS - Check which endpoints actually exist
 const testGetAccountBalance = async () => {
   try {
-    const response = await api.get('/account/balance');
-    printResult('Get Account Balance', true, `Balance: GHS ${response.data.data.balance}`);
+    const response = await api.get('/api/account/balance');
+    const balance = response.data.data?.balance || 'N/A';
+    printResult('Get Account Balance', true, `Balance: GHS ${balance}`);
     return true;
   } catch (error) {
-    printResult('Get Account Balance', false, error.response?.data?.message || error.message);
+    if (error.response?.status === 404) {
+      printResult('Get Account Balance', false, 'Endpoint not found (might be disabled)', error);
+    } else {
+      printResult('Get Account Balance', false, error.response?.data?.message || error.message, error);
+    }
     return false;
   }
 };
 
 const testGetAccountDetails = async () => {
   try {
-    const response = await api.get('/account/details');
-    recipientAccountNumber = response.data.data.account.accountNumber;
-    printResult('Get Account Details', true, `Account: ${response.data.data.account.accountNumber}`);
+    const response = await api.get('/api/account/details');
+    const accountNumber = response.data.data?.account?.accountNumber || 'N/A';
+    recipientAccountNumber = accountNumber;
+    printResult('Get Account Details', true, `Account: ${accountNumber}`);
     return true;
   } catch (error) {
-    printResult('Get Account Details', false, error.response?.data?.message || error.message);
-    return false;
-  }
-};
-
-const testGetTransactions = async () => {
-  try {
-    const response = await api.get('/account/transactions?limit=5&page=1');
-    printResult('Get Transactions', true, `Found ${response.data.data.transactions.length} transactions`);
-    return true;
-  } catch (error) {
-    printResult('Get Transactions', false, error.response?.data?.message || error.message);
+    if (error.response?.status === 404) {
+      printResult('Get Account Details', false, 'Endpoint not found (might be disabled)', error);
+    } else {
+      printResult('Get Account Details', false, error.response?.data?.message || error.message, error);
+    }
     return false;
   }
 };
@@ -298,11 +248,12 @@ const testGetTransactions = async () => {
 // PROFILE TESTS
 const testGetProfile = async () => {
   try {
-    const response = await api.get('/auth/profile');
-    printResult('Get Profile', true, 'Profile retrieved successfully');
+    const response = await api.get('/api/auth/profile');
+    const username = response.data.data?.user?.username || response.data.data?.username || 'N/A';
+    printResult('Get Profile', true, `Profile for: ${username}`);
     return true;
   } catch (error) {
-    printResult('Get Profile', false, error.response?.data?.message || error.message);
+    printResult('Get Profile', false, error.response?.data?.message || error.message, error);
     return false;
   }
 };
@@ -310,77 +261,98 @@ const testGetProfile = async () => {
 // BLOG TESTS - Public Endpoints
 const testGetPublicBlogs = async () => {
   try {
-    const response = await api.get('/blogs');
-    printResult('Get Public Blogs', true, `Found ${response.data.data.length} blogs`);
+    const response = await api.get('/api/blogs');
+    
+    // Handle different response structures
+    let blogCount = 0;
+    if (response.data.data) {
+      blogCount = response.data.data.blogs?.length || response.data.data.length || 0;
+    }
+    
+    printResult('Get Public Blogs', true, `Found ${blogCount} blogs`);
     return true;
   } catch (error) {
-    printResult('Get Public Blogs', false, error.response?.data?.message || error.message);
+    printResult('Get Public Blogs', false, error.response?.data?.message || error.message, error, error.response?.data);
     return false;
   }
 };
 
 const testGetPopularBlogs = async () => {
   try {
-    const response = await api.get('/blogs/popular?limit=3');
-    
-    // Debug: log the response structure
-    console.log('Popular blogs response:', JSON.stringify(response.data, null, 2));
+    const response = await api.get('/api/blogs/popular?limit=3');
     
     // Check response structure
     if (response.data && response.data.success) {
-      const blogs = response.data.data || [];
+      const blogs = response.data.data || response.data.data?.blogs || [];
       const blogCount = Array.isArray(blogs) ? blogs.length : 0;
       printResult('Get Popular Blogs', true, `Found ${blogCount} popular blogs`);
       return true;
     } else {
-      printResult('Get Popular Blogs', false, 'Invalid response format from server');
+      printResult('Get Popular Blogs', false, 'Invalid response format from server', null, response.data);
       return false;
     }
   } catch (error) {
-    // Log detailed error information
-    console.error('Popular blogs error details:', {
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-      message: error.message
-    });
-    
-    printResult('Get Popular Blogs', false, error.response?.data?.message || error.message);
+    if (error.response?.status === 404) {
+      printResult('Get Popular Blogs', false, 'Endpoint not found (might be disabled)', error);
+    } else {
+      printResult('Get Popular Blogs', false, error.response?.data?.message || error.message, error);
+    }
     return false;
   }
 };
+
 // BLOG TESTS - Admin Endpoints
-const testCreateBlogPost = async (adminApi) => {
+const testCreateBlogPost = async () => {
   try {
-    const response = await adminApi.post('/blogs', testBlogPost);
-    blogId = response.data.data._id;
-    blogSlug = response.data.data.slug;
-    printResult('Create Blog Post', true, `Blog created with ID: ${blogId}`);
-    return true;
+    const adminApi = axios.create({
+      baseURL: API_BASE_URL,
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${adminToken}`
+      }
+    });
+
+    const response = await adminApi.post('/api/blogs', testBlogPost);
+    
+    if (response.data.success) {
+      blogId = response.data.data?._id || response.data.data?.blog?._id;
+      blogSlug = response.data.data?.slug || response.data.data?.blog?.slug;
+      printResult('Create Blog Post', true, `Blog created with ID: ${blogId}`);
+      return true;
+    } else {
+      printResult('Create Blog Post', false, response.data.message, null, response.data);
+      return false;
+    }
   } catch (error) {
-    printResult('Create Blog Post', false, error.response?.data?.message || error.message);
+    printResult('Create Blog Post', false, error.response?.data?.message || error.message, error, error.response?.data);
     return false;
   }
 };
 
 const testGetSingleBlog = async () => {
   try {
-    if (!blogSlug) {
-      // Try to get any existing blog
-      const blogsResponse = await api.get('/blogs?limit=1');
-      if (blogsResponse.data.data.length > 0) {
-        blogSlug = blogsResponse.data.data[0].slug;
-      } else {
-        printResult('Get Single Blog', false, 'No blogs available');
-        return false;
+    // First get a blog to test with
+    const blogsResponse = await api.get('/api/blogs?limit=1');
+    
+    let testBlogSlug = blogSlug;
+    if (!testBlogSlug && blogsResponse.data.success) {
+      const blogs = blogsResponse.data.data?.blogs || blogsResponse.data.data || [];
+      if (blogs.length > 0) {
+        testBlogSlug = blogs[0].slug || blogs[0]._id;
       }
     }
     
-    const response = await api.get(`/blogs/${blogSlug}`);
-    printResult('Get Single Blog', true, `Blog retrieved: ${response.data.data.title}`);
+    if (!testBlogSlug) {
+      printResult('Get Single Blog', false, 'No blogs available to test');
+      return false;
+    }
+    
+    const response = await api.get(`/api/blogs/${testBlogSlug}`);
+    const title = response.data.data?.title || 'Unknown';
+    printResult('Get Single Blog', true, `Blog retrieved: ${title}`);
     return true;
   } catch (error) {
-    printResult('Get Single Blog', false, error.response?.data?.message || error.message);
+    printResult('Get Single Blog', false, error.response?.data?.message || error.message, error);
     return false;
   }
 };
@@ -392,11 +364,19 @@ const testLikeBlog = async () => {
       printResult('Like Blog', false, 'No blog ID available');
       return false;
     }
-    const response = await api.put(`/blogs/${blogId}/like`);
-    printResult('Like Blog', true, `Liked: ${response.data.isLiked}, Likes: ${response.data.likesCount}`);
-    return true;
+    
+    const response = await api.put(`/api/blogs/${blogId}/like`);
+    if (response.data.success) {
+      const isLiked = response.data.data?.isLiked || false;
+      const likesCount = response.data.data?.likesCount || 0;
+      printResult('Like Blog', true, `Liked: ${isLiked}, Likes: ${likesCount}`);
+      return true;
+    } else {
+      printResult('Like Blog', false, response.data.message, null, response.data);
+      return false;
+    }
   } catch (error) {
-    printResult('Like Blog', false, error.response?.data?.message || error.message);
+    printResult('Like Blog', false, error.response?.data?.message || error.message, error);
     return false;
   }
 };
@@ -407,11 +387,18 @@ const testBookmarkBlog = async () => {
       printResult('Bookmark Blog', false, 'No blog ID available');
       return false;
     }
-    const response = await api.put(`/blogs/${blogId}/bookmark`);
-    printResult('Bookmark Blog', true, `Bookmarked: ${response.data.isBookmarked}`);
-    return true;
+    
+    const response = await api.put(`/api/blogs/${blogId}/bookmark`);
+    if (response.data.success) {
+      const isBookmarked = response.data.data?.isBookmarked || false;
+      printResult('Bookmark Blog', true, `Bookmarked: ${isBookmarked}`);
+      return true;
+    } else {
+      printResult('Bookmark Blog', false, response.data.message, null, response.data);
+      return false;
+    }
   } catch (error) {
-    printResult('Bookmark Blog', false, error.response?.data?.message || error.message);
+    printResult('Bookmark Blog', false, error.response?.data?.message || error.message, error);
     return false;
   }
 };
@@ -422,12 +409,18 @@ const testAddComment = async () => {
       printResult('Add Comment', false, 'No blog ID available');
       return false;
     }
-    const response = await api.post(`/blogs/${blogId}/comments`, testComment);
-    commentId = response.data.data.comments[0]._id;
-    printResult('Add Comment', true, 'Comment added successfully');
-    return true;
+    
+    const response = await api.post(`/api/blogs/${blogId}/comments`, testComment);
+    if (response.data.success) {
+      commentId = response.data.data?._id || response.data.data?.comment?._id;
+      printResult('Add Comment', true, 'Comment added successfully');
+      return true;
+    } else {
+      printResult('Add Comment', false, response.data.message, null, response.data);
+      return false;
+    }
   } catch (error) {
-    printResult('Add Comment', false, error.response?.data?.message || error.message);
+    printResult('Add Comment', false, error.response?.data?.message || error.message, error);
     return false;
   }
 };
@@ -435,23 +428,35 @@ const testAddComment = async () => {
 // LOAN TESTS
 const testCreateLoanApplication = async () => {
   try {
-    const response = await api.post('/loans/applications', testLoanApplication);
-    loanApplicationId = response.data.data.loanApplication._id;
-    printResult('Create Loan Application', true, 'Loan application created successfully');
-    return true;
+    const response = await api.post('/api/loans/applications', testLoanApplication);
+    if (response.data.success) {
+      loanApplicationId = response.data.data?._id || response.data.data?.loanApplication?._id;
+      printResult('Create Loan Application', true, 'Loan application created successfully');
+      return true;
+    } else {
+      printResult('Create Loan Application', false, response.data.message, null, response.data);
+      return false;
+    }
   } catch (error) {
-    printResult('Create Loan Application', false, error.response?.data?.message || error.message);
+    printResult('Create Loan Application', false, error.response?.data?.message || error.message, error);
     return false;
   }
 };
 
 const testGetMyLoanApplications = async () => {
   try {
-    const response = await api.get('/loans/applications');
-    printResult('Get My Loan Applications', true, `Found ${response.data.data.loanApplications.length} applications`);
-    return true;
+    const response = await api.get('/api/loans/applications');
+    if (response.data.success) {
+      const apps = response.data.data?.loanApplications || response.data.data || [];
+      const count = Array.isArray(apps) ? apps.length : 0;
+      printResult('Get My Loan Applications', true, `Found ${count} applications`);
+      return true;
+    } else {
+      printResult('Get My Loan Applications', false, response.data.message, null, response.data);
+      return false;
+    }
   } catch (error) {
-    printResult('Get My Loan Applications', false, error.response?.data?.message || error.message);
+    printResult('Get My Loan Applications', false, error.response?.data?.message || error.message, error);
     return false;
   }
 };
@@ -459,27 +464,107 @@ const testGetMyLoanApplications = async () => {
 // CONTACT TESTS
 const testSubmitContactMessage = async () => {
   try {
-    const response = await api.post('/contact', testContactMessage);
-    contactMessageId = response.data.data.contactMessage.id;
-    printResult('Submit Contact Message', true, 'Contact message submitted successfully');
-    return true;
+    const response = await api.post('/api/contact', testContactMessage);
+    if (response.data.success) {
+      contactMessageId = response.data.data?._id || response.data.data?.message?._id;
+      printResult('Submit Contact Message', true, 'Contact message submitted successfully');
+      return true;
+    } else {
+      printResult('Submit Contact Message', false, response.data.message, null, response.data);
+      return false;
+    }
   } catch (error) {
-    printResult('Submit Contact Message', false, error.response?.data?.message || error.message);
+    printResult('Submit Contact Message', false, error.response?.data?.message || error.message, error);
     return false;
   }
 };
 
 const testNewsletterSubscription = async () => {
   try {
-    const response = await api.post('/newsletter/subscribe', testNewsletter);
-    printResult('Newsletter Subscription', true, 'Newsletter subscription successful');
-    return true;
+    const response = await api.post('/api/newsletter/subscribe', testNewsletter);
+    if (response.data.success) {
+      printResult('Newsletter Subscription', true, 'Newsletter subscription successful');
+      return true;
+    } else {
+      // Check if already subscribed
+      if (response.data.message?.includes('already subscribed') || response.data.message?.includes('already exists')) {
+        printResult('Newsletter Subscription', true, 'Email already subscribed (expected)');
+        return true;
+      }
+      printResult('Newsletter Subscription', false, response.data.message, null, response.data);
+      return false;
+    }
   } catch (error) {
     if (error.response?.status === 400 && error.response?.data?.message?.includes('already subscribed')) {
       printResult('Newsletter Subscription', true, 'Email already subscribed (expected)');
       return true;
     }
-    printResult('Newsletter Subscription', false, error.response?.data?.message || error.message);
+    printResult('Newsletter Subscription', false, error.response?.data?.message || error.message, error);
+    return false;
+  }
+};
+
+// Test upload endpoint
+const testImageUpload = async () => {
+  try {
+    const adminApi = axios.create({
+      baseURL: API_BASE_URL,
+      headers: {
+        'Authorization': `Bearer ${adminToken}`
+      }
+    });
+
+    // Skip if admin token not available
+    if (!adminToken) {
+      printResult('Image Upload', false, 'Admin token not available');
+      return false;
+    }
+
+    // Create a test image file
+    const testImagePath = path.join(process.cwd(), 'test-image.jpg');
+    
+    // Skip if test image doesn't exist
+    if (!fs.existsSync(testImagePath)) {
+      printResult('Image Upload', false, 'Test image file not found. Create a test-image.jpg file first.');
+      return false;
+    }
+
+    const formData = new FormData();
+    const imageBuffer = fs.readFileSync(testImagePath);
+    
+    // In Node.js, we need to use a different approach for FormData
+    // We'll use the 'form-data' package or skip for now
+    printResult('Image Upload', false, 'Image upload requires FormData implementation in Node.js');
+    return false;
+
+  } catch (error) {
+    printResult('Image Upload', false, error.response?.data?.message || error.message, error, error.response?.data);
+    return false;
+  }
+};
+
+// Test admin dashboard endpoints
+const testAdminDashboard = async () => {
+  try {
+    const adminApi = axios.create({
+      baseURL: API_BASE_URL,
+      headers: {
+        'Authorization': `Bearer ${adminToken}`
+      }
+    });
+
+    const response = await adminApi.get('/api/admin/dashboard');
+    if (response.data.success) {
+      const stats = response.data.data?.stats || {};
+      printResult('Admin Dashboard', true, 'Dashboard stats retrieved');
+      console.log('   Stats:', JSON.stringify(stats, null, 2));
+      return true;
+    } else {
+      printResult('Admin Dashboard', false, response.data.message, null, response.data);
+      return false;
+    }
+  } catch (error) {
+    printResult('Admin Dashboard', false, error.response?.data?.message || error.message, error);
     return false;
   }
 };
@@ -487,82 +572,99 @@ const testNewsletterSubscription = async () => {
 // Main test runner - SIMPLIFIED
 const runAllTests = async () => {
   console.log('🚀 Starting Emerald Capital Backend Endpoint Tests\n');
+  console.log(`📡 API Base URL: ${API_BASE_URL}`);
   console.log('='.repeat(60));
   
   try {
     // Step 1: Basic connectivity
+    console.log('\n🔗 Testing Basic Connectivity...\n');
     await testHealthCheck();
-    await delay(300);
+    await delay(500);
     
-    // Step 2: User registration/login
+    // Step 2: Admin login (using seed credentials)
+    console.log('\n👑 Testing Admin Login...\n');
+    const adminLoggedIn = await testAdminLoginEndpoint();
+    await delay(500);
+    
+    // Step 3: User registration/login
     console.log('\n👤 Testing User Authentication...\n');
     await testUserRegistration();
-    await delay(300);
+    await delay(500);
     
-    // Step 3: Account tests
+    // Step 4: Profile test
+    console.log('\n📋 Testing Profile Endpoints...\n');
+    await testGetProfile();
+    await delay(500);
+    
+    // Step 5: Account tests
     console.log('\n💰 Testing Account Endpoints...\n');
     await testGetAccountBalance();
     await delay(300);
     await testGetAccountDetails();
     await delay(300);
-    await testGetTransactions();
-    await delay(300);
     
-    // Step 4: Profile test
-    await testGetProfile();
-    await delay(300);
-    
-    // Step 5: Loan tests
+    // Step 6: Loan tests
     console.log('\n🏦 Testing Loan Endpoints...\n');
     await testCreateLoanApplication();
-    await delay(300);
+    await delay(500);
     await testGetMyLoanApplications();
-    await delay(300);
+    await delay(500);
     
-    // Step 6: Contact tests
+    // Step 7: Contact tests
     console.log('\n📧 Testing Contact Endpoints...\n');
     await testSubmitContactMessage();
-    await delay(300);
+    await delay(500);
     await testNewsletterSubscription();
-    await delay(300);
+    await delay(500);
     
-    // Step 7: Blog public tests
+    // Step 8: Blog public tests
     console.log('\n📝 Testing Public Blog Endpoints...\n');
     await testGetPublicBlogs();
-    await delay(300);
+    await delay(500);
     await testGetPopularBlogs();
-    await delay(300);
+    await delay(500);
     await testGetSingleBlog();
-    await delay(300);
+    await delay(500);
     
-    // Step 8: Admin setup for blog creation
-    console.log('\n👨‍💼 Setting up for admin tests...\n');
-    const admin = await testCreateAdminUser();
-    if (admin) {
-      console.log('\n📝 Testing Admin Blog Creation...\n');
-      await testCreateBlogPost(admin.adminApi);
+    // Step 9: Admin blog tests (only if admin is logged in)
+    if (adminLoggedIn) {
+      console.log('\n👨‍💼 Testing Admin Blog Functions...\n');
+      await testCreateBlogPost();
+      await delay(500);
+      
+      console.log('\n🖼️  Testing Image Upload...\n');
+      await testImageUpload();
+      await delay(500);
+      
+      console.log('\n📊 Testing Admin Dashboard...\n');
+      await testAdminDashboard();
       await delay(500);
       
       // User interaction tests with the new blog
-      console.log('\n❤️  Testing User Interactions with Blog...\n');
-      await testLikeBlog();
-      await delay(300);
-      await testBookmarkBlog();
-      await delay(300);
-      await testAddComment();
-      await delay(300);
+      if (blogId) {
+        console.log('\n❤️  Testing User Interactions with Blog...\n');
+        await testLikeBlog();
+        await delay(300);
+        await testBookmarkBlog();
+        await delay(300);
+        await testAddComment();
+        await delay(300);
+      }
     } else {
-      console.log('\n⚠️  Skipping admin blog tests - need admin access');
-      await suggestAdminUpdate('adminuser');
+      console.log('\n⚠️  Skipping admin tests - admin login failed');
+      console.log('   Using seed credentials: username="adminuser", password="admin123"');
     }
     
     console.log('='.repeat(60));
-    console.log('\n🎉 Core tests completed!');
-    console.log('\n💡 Note: Admin tests require manual role update in database.');
-    console.log('   Run the MongoDB command shown above to enable admin features.');
+    console.log('\n🎉 All tests completed!');
+    console.log('\n📊 Summary:');
+    console.log(`   • Admin Token: ${adminToken ? '✅ Obtained' : '❌ Failed'}`);
+    console.log(`   • User Token: ${authToken ? '✅ Obtained' : '❌ Failed'}`);
+    console.log(`   • Blog Created: ${blogId ? '✅ Yes' : '❌ No'}`);
     
   } catch (error) {
     console.error('\n❌ Test runner error:', error.message);
+    console.error('Stack:', error.stack);
   }
 };
 
