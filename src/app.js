@@ -5,7 +5,7 @@ import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fs from 'fs'; // Add this import
+import fs from 'fs';
 import config from './config/config.js';
 import errorHandler from './middleware/errorHandler.js';
 import connectDB from './config/database.js';
@@ -76,27 +76,54 @@ const publicLimiter = rateLimit({
   },
 });
 
-// CORS configuration
+// CORS configuration - UPDATED FOR NETLIFY
 const corsOptions = {
   origin: (origin, callback) => {
     if (!origin) return callback(null, true);
     
+    // Parse multiple URLs from config.clientUrl if it's comma-separated
+    const allowedUrls = config.clientUrl ? config.clientUrl.split(',').map(url => url.trim()) : [];
+    
     const allowedOrigins = [
-      config.clientUrl || 'http://localhost:3000',
-      'http://localhost:5173', // Add Vite dev server
-      'https://emeraldcapital.com',
+      ...allowedUrls,
+      'http://localhost:3000',
+      'http://localhost:5173', // Vite dev server
+      'https://emerald-capital.netlify.app', // Netlify main
+      'https://emerald-capital-u8zr.vercel.app', // Vercel (for backup)
+      'https://emeraldcapital.com', // Your domain
       'https://www.emeraldcapital.com',
+      /\.netlify\.app$/, // Allow all Netlify previews
+      /\.vercel\.app$/, // Allow all Vercel previews
     ];
     
-    if (allowedOrigins.includes(origin) || config.nodeEnv === 'development') {
+    // Check if origin matches any allowed pattern
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (typeof allowed === 'string') {
+        return allowed === origin;
+      }
+      if (allowed instanceof RegExp) {
+        return allowed.test(origin);
+      }
+      return false;
+    });
+    
+    // Always allow in development
+    if (config.nodeEnv === 'development') {
+      return callback(null, true);
+    }
+    
+    if (isAllowed) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      console.log(`❌ CORS blocked origin: ${origin}`);
+      callback(new Error(`Not allowed by CORS. Origin: ${origin}`));
     }
   },
   credentials: true,
   optionsSuccessStatus: 200,
   exposedHeaders: ['Content-Disposition'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
 };
 
 app.use(cors(corsOptions));
@@ -149,10 +176,10 @@ if (config.nodeEnv === 'development') {
   }));
 }
 
-// Request logging middleware
+// Request logging middleware with CORS info
 app.use((req, res, next) => {
   if (config.nodeEnv === 'development') {
-    console.log(`${req.method} ${req.url}`);
+    console.log(`${req.method} ${req.url} - Origin: ${req.headers.origin || 'No Origin'}`);
   }
   next();
 });
@@ -164,10 +191,12 @@ app.get('/api/health', publicLimiter, (req, res) => {
     message: 'Emerald Capital Backend is running',
     timestamp: new Date().toISOString(),
     environment: config.nodeEnv,
+    clientUrl: config.clientUrl,
     version: process.env.npm_package_version || '1.0.0',
     uptime: process.uptime(),
     memoryUsage: process.memoryUsage(),
     database: 'connected',
+    allowedOrigins: config.clientUrl ? config.clientUrl.split(',').map(url => url.trim()) : []
   };
   res.status(200).json(healthCheck);
 });
@@ -180,6 +209,7 @@ app.get('/api/system-info', apiLimiter, (req, res) => {
     memory: process.memoryUsage(),
     cpuUsage: process.cpuUsage(),
     env: config.nodeEnv,
+    clientUrl: config.clientUrl,
     pid: process.pid,
     uptime: process.uptime(),
   };
@@ -203,7 +233,7 @@ app.use('/api/account', accountRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/blogs', blogRoutes);
 app.use('/api/categories', categoryRoutes);
-app.use('/api/upload', uploadRoutes); // Make sure this is included
+app.use('/api/upload', uploadRoutes);
 
 // Serve static files in production
 if (config.nodeEnv === 'production') {
@@ -240,6 +270,7 @@ app.all('*', (req, res) => {
     message: `Route ${req.originalUrl} not found on this server`,
     method: req.method,
     timestamp: new Date().toISOString(),
+    origin: req.headers.origin || 'No Origin',
     suggestion: 'Check the API documentation or ensure the endpoint exists',
   });
 });
