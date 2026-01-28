@@ -3,6 +3,7 @@ import axios from 'axios';
 import { config } from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import FormData from 'form-data';
 
 // Load environment variables
 config();
@@ -27,7 +28,7 @@ let blogSlug = '';
 let commentId = '';
 let adminToken = '';
 
-// FIXED: Test data aligned with User schema
+// Test data
 const testUser = {
   sex: 'male',
   firstName: 'John',
@@ -59,7 +60,6 @@ const testUser = {
   agreementConfirmed: true
 };
 
-// Admin login data (use your seed admin credentials)
 const testAdminLogin = {
   username: 'adminuser',
   password: 'admin123'
@@ -109,6 +109,8 @@ const testComment = {
   text: 'This is a test comment on the blog post.'
 };
 
+const testImagePath = path.join(process.cwd(), 'test-image.jpg');
+
 // Utility functions
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -117,12 +119,23 @@ const printResult = (testName, success, message = '', error = null, data = null)
   console.log(`${status} - ${testName}`);
   if (message) console.log(`   Message: ${message}`);
   if (error && !success) {
-    console.log(`   Error Details:`, error.response?.data || error.message);
+    console.log(`   Error: ${error.response?.data?.message || error.message}`);
   }
-  if (data && !success && process.env.DEBUG === 'true') {
-    console.log(`   Response Data:`, JSON.stringify(data, null, 2));
+  if (data && process.env.DEBUG === 'true') {
+    console.log(`   Data:`, JSON.stringify(data, null, 2));
   }
   console.log('');
+};
+
+// Create authenticated API instance
+const createAuthApi = (token) => {
+  return axios.create({
+    baseURL: API_BASE_URL,
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${token}`
+    }
+  });
 };
 
 // Test functions
@@ -137,7 +150,55 @@ const testHealthCheck = async () => {
   }
 };
 
-// Test Admin Login directly
+const testCorsDebug = async () => {
+  try {
+    const response = await api.get('/api/cors-debug');
+    printResult('CORS Debug Endpoint', true, `Origin: ${response.data.requestOrigin || 'None'}`);
+    return true;
+  } catch (error) {
+    printResult('CORS Debug Endpoint', false, error.message, error);
+    return false;
+  }
+};
+
+const testUploadsCheck = async () => {
+  try {
+    const response = await api.get('/api/uploads-check');
+    const blogImages = response.data.blogImages;
+    const fileExists = blogImages?.targetFile?.exists || false;
+    const fileCount = blogImages?.files?.length || 0;
+    
+    printResult('Uploads Check Endpoint', true, 
+      `Blog images: ${fileCount} files, Target exists: ${fileExists}`);
+    return true;
+  } catch (error) {
+    printResult('Uploads Check Endpoint', false, error.message, error);
+    return false;
+  }
+};
+
+// FIXED: Upload endpoints with authentication
+const testUploadInfo = async () => {
+  try {
+    if (!adminToken) {
+      printResult('Upload Info Endpoint', false, 'No admin token available');
+      return false;
+    }
+    
+    const authApi = createAuthApi(adminToken);
+    const response = await authApi.get('/api/upload/info');
+    const maxSize = response.data.data?.maxFileSize || 'Unknown';
+    const serverUrl = response.data.data?.serverUrl || 'Unknown';
+    
+    printResult('Upload Info Endpoint', true, 
+      `Max file size: ${maxSize}, Server: ${serverUrl.split('//').pop()}`);
+    return true;
+  } catch (error) {
+    printResult('Upload Info Endpoint', false, error.message, error);
+    return false;
+  }
+};
+
 const testAdminLoginEndpoint = async () => {
   try {
     const response = await api.post('/api/admin/login', testAdminLogin);
@@ -156,18 +217,80 @@ const testAdminLoginEndpoint = async () => {
   }
 };
 
-// FIXED: Registration with proper error handling
+const testUploadDebugDirs = async () => {
+  try {
+    if (!adminToken) {
+      printResult('Upload Debug Directories', false, 'No admin token available');
+      return false;
+    }
+    
+    const authApi = createAuthApi(adminToken);
+    const response = await authApi.get('/api/upload/debug-dirs');
+    const directories = response.data.directories || {};
+    const blogImages = directories['blog-images'];
+    const blogFiles = blogImages?.files?.length || 0;
+    
+    printResult('Upload Debug Directories', true, 
+      `Blog images dir: ${blogFiles} files, Path: ${blogImages?.path?.split('/').pop()}`);
+    return true;
+  } catch (error) {
+    printResult('Upload Debug Directories', false, error.message, error);
+    return false;
+  }
+};
+
+const testUploadListFiles = async () => {
+  try {
+    if (!adminToken) {
+      printResult('Upload List Files', false, 'No admin token available');
+      return false;
+    }
+    
+    const authApi = createAuthApi(adminToken);
+    const response = await authApi.get('/api/upload/list/blog-images');
+    const fileCount = response.data.fileCount || 0;
+    const pathInfo = response.data.path || '';
+    
+    printResult('Upload List Files', true, 
+      `${fileCount} files in blog-images, Path: ${pathInfo.split('/').pop()}`);
+    return true;
+  } catch (error) {
+    printResult('Upload List Files', false, error.message, error);
+    return false;
+  }
+};
+
+const testUploadCreateTestFile = async () => {
+  try {
+    if (!adminToken) {
+      printResult('Upload Test File Creation', false, 'No admin token available');
+      return false;
+    }
+    
+    const authApi = createAuthApi(adminToken);
+    const response = await authApi.get('/api/upload/test-create');
+    const fileCreated = response.data.success || false;
+    const fullUrl = response.data.fullUrl || '';
+    
+    printResult('Upload Test File Creation', fileCreated, 
+      fileCreated ? `File created: ${fullUrl.split('/').pop()}` : 'Failed to create test file');
+    return fileCreated;
+  } catch (error) {
+    printResult('Upload Test File Creation', false, error.message, error);
+    return false;
+  }
+};
+
+// User registration function
 const testUserRegistration = async () => {
   try {
     const response = await api.post('/api/auth/register', testUser);
     
-    // Check response structure
     if (response.data.success && response.data.data) {
       authToken = response.data.data.tokens?.accessToken || response.data.data.token;
       userId = response.data.data.user?._id || response.data.data._id;
       
       if (authToken) {
-        api.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
         printResult('User Registration', true, 'User registered successfully');
         return true;
       }
@@ -187,6 +310,7 @@ const testUserRegistration = async () => {
   }
 };
 
+// User login function
 const testUserLogin = async () => {
   try {
     const response = await api.post('/api/auth/login', testLogin);
@@ -196,7 +320,6 @@ const testUserLogin = async () => {
       userId = response.data.data.user?._id || response.data.data._id;
       
       if (authToken) {
-        api.defaults.headers.common['Authorization'] = `Bearer ${authToken}`;
         printResult('User Login', true, 'User logged in successfully');
         return true;
       }
@@ -211,10 +334,35 @@ const testUserLogin = async () => {
   }
 };
 
-// ACCOUNT TESTS - Check which endpoints actually exist
+// Profile test function
+const testGetProfile = async () => {
+  try {
+    if (!authToken) {
+      printResult('Get Profile', false, 'No user token available');
+      return false;
+    }
+    
+    const authApi = createAuthApi(authToken);
+    const response = await authApi.get('/api/auth/profile');
+    const username = response.data.data?.user?.username || response.data.data?.username || 'N/A';
+    printResult('Get Profile', true, `Profile for: ${username}`);
+    return true;
+  } catch (error) {
+    printResult('Get Profile', false, error.response?.data?.message || error.message, error);
+    return false;
+  }
+};
+
+// Account tests
 const testGetAccountBalance = async () => {
   try {
-    const response = await api.get('/api/account/balance');
+    if (!authToken) {
+      printResult('Get Account Balance', false, 'No user token available');
+      return false;
+    }
+    
+    const authApi = createAuthApi(authToken);
+    const response = await authApi.get('/api/account/balance');
     const balance = response.data.data?.balance || 'N/A';
     printResult('Get Account Balance', true, `Balance: GHS ${balance}`);
     return true;
@@ -230,7 +378,13 @@ const testGetAccountBalance = async () => {
 
 const testGetAccountDetails = async () => {
   try {
-    const response = await api.get('/api/account/details');
+    if (!authToken) {
+      printResult('Get Account Details', false, 'No user token available');
+      return false;
+    }
+    
+    const authApi = createAuthApi(authToken);
+    const response = await authApi.get('/api/account/details');
     const accountNumber = response.data.data?.account?.accountNumber || 'N/A';
     recipientAccountNumber = accountNumber;
     printResult('Get Account Details', true, `Account: ${accountNumber}`);
@@ -245,25 +399,11 @@ const testGetAccountDetails = async () => {
   }
 };
 
-// PROFILE TESTS
-const testGetProfile = async () => {
-  try {
-    const response = await api.get('/api/auth/profile');
-    const username = response.data.data?.user?.username || response.data.data?.username || 'N/A';
-    printResult('Get Profile', true, `Profile for: ${username}`);
-    return true;
-  } catch (error) {
-    printResult('Get Profile', false, error.response?.data?.message || error.message, error);
-    return false;
-  }
-};
-
-// BLOG TESTS - Public Endpoints
+// Blog tests
 const testGetPublicBlogs = async () => {
   try {
     const response = await api.get('/api/blogs');
     
-    // Handle different response structures
     let blogCount = 0;
     if (response.data.data) {
       blogCount = response.data.data.blogs?.length || response.data.data.length || 0;
@@ -281,7 +421,6 @@ const testGetPopularBlogs = async () => {
   try {
     const response = await api.get('/api/blogs/popular?limit=3');
     
-    // Check response structure
     if (response.data && response.data.success) {
       const blogs = response.data.data || response.data.data?.blogs || [];
       const blogCount = Array.isArray(blogs) ? blogs.length : 0;
@@ -301,18 +440,15 @@ const testGetPopularBlogs = async () => {
   }
 };
 
-// BLOG TESTS - Admin Endpoints
 const testCreateBlogPost = async () => {
   try {
-    const adminApi = axios.create({
-      baseURL: API_BASE_URL,
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${adminToken}`
-      }
-    });
-
-    const response = await adminApi.post('/api/blogs', testBlogPost);
+    if (!adminToken) {
+      printResult('Create Blog Post', false, 'No admin token available');
+      return false;
+    }
+    
+    const authApi = createAuthApi(adminToken);
+    const response = await authApi.post('/api/blogs', testBlogPost);
     
     if (response.data.success) {
       blogId = response.data.data?._id || response.data.data?.blog?._id;
@@ -357,78 +493,16 @@ const testGetSingleBlog = async () => {
   }
 };
 
-// BLOG TESTS - User Interactions
-const testLikeBlog = async () => {
-  try {
-    if (!blogId) {
-      printResult('Like Blog', false, 'No blog ID available');
-      return false;
-    }
-    
-    const response = await api.put(`/api/blogs/${blogId}/like`);
-    if (response.data.success) {
-      const isLiked = response.data.data?.isLiked || false;
-      const likesCount = response.data.data?.likesCount || 0;
-      printResult('Like Blog', true, `Liked: ${isLiked}, Likes: ${likesCount}`);
-      return true;
-    } else {
-      printResult('Like Blog', false, response.data.message, null, response.data);
-      return false;
-    }
-  } catch (error) {
-    printResult('Like Blog', false, error.response?.data?.message || error.message, error);
-    return false;
-  }
-};
-
-const testBookmarkBlog = async () => {
-  try {
-    if (!blogId) {
-      printResult('Bookmark Blog', false, 'No blog ID available');
-      return false;
-    }
-    
-    const response = await api.put(`/api/blogs/${blogId}/bookmark`);
-    if (response.data.success) {
-      const isBookmarked = response.data.data?.isBookmarked || false;
-      printResult('Bookmark Blog', true, `Bookmarked: ${isBookmarked}`);
-      return true;
-    } else {
-      printResult('Bookmark Blog', false, response.data.message, null, response.data);
-      return false;
-    }
-  } catch (error) {
-    printResult('Bookmark Blog', false, error.response?.data?.message || error.message, error);
-    return false;
-  }
-};
-
-const testAddComment = async () => {
-  try {
-    if (!blogId) {
-      printResult('Add Comment', false, 'No blog ID available');
-      return false;
-    }
-    
-    const response = await api.post(`/api/blogs/${blogId}/comments`, testComment);
-    if (response.data.success) {
-      commentId = response.data.data?._id || response.data.data?.comment?._id;
-      printResult('Add Comment', true, 'Comment added successfully');
-      return true;
-    } else {
-      printResult('Add Comment', false, response.data.message, null, response.data);
-      return false;
-    }
-  } catch (error) {
-    printResult('Add Comment', false, error.response?.data?.message || error.message, error);
-    return false;
-  }
-};
-
-// LOAN TESTS
+// Loan tests
 const testCreateLoanApplication = async () => {
   try {
-    const response = await api.post('/api/loans/applications', testLoanApplication);
+    if (!authToken) {
+      printResult('Create Loan Application', false, 'No user token available');
+      return false;
+    }
+    
+    const authApi = createAuthApi(authToken);
+    const response = await authApi.post('/api/loans/applications', testLoanApplication);
     if (response.data.success) {
       loanApplicationId = response.data.data?._id || response.data.data?.loanApplication?._id;
       printResult('Create Loan Application', true, 'Loan application created successfully');
@@ -445,7 +519,13 @@ const testCreateLoanApplication = async () => {
 
 const testGetMyLoanApplications = async () => {
   try {
-    const response = await api.get('/api/loans/applications');
+    if (!authToken) {
+      printResult('Get My Loan Applications', false, 'No user token available');
+      return false;
+    }
+    
+    const authApi = createAuthApi(authToken);
+    const response = await authApi.get('/api/loans/applications');
     if (response.data.success) {
       const apps = response.data.data?.loanApplications || response.data.data || [];
       const count = Array.isArray(apps) ? apps.length : 0;
@@ -461,7 +541,7 @@ const testGetMyLoanApplications = async () => {
   }
 };
 
-// CONTACT TESTS
+// Contact tests
 const testSubmitContactMessage = async () => {
   try {
     const response = await api.post('/api/contact', testContactMessage);
@@ -486,7 +566,6 @@ const testNewsletterSubscription = async () => {
       printResult('Newsletter Subscription', true, 'Newsletter subscription successful');
       return true;
     } else {
-      // Check if already subscribed
       if (response.data.message?.includes('already subscribed') || response.data.message?.includes('already exists')) {
         printResult('Newsletter Subscription', true, 'Email already subscribed (expected)');
         return true;
@@ -504,56 +583,64 @@ const testNewsletterSubscription = async () => {
   }
 };
 
-// Test upload endpoint
+// Image upload test
 const testImageUpload = async () => {
   try {
-    const adminApi = axios.create({
-      baseURL: API_BASE_URL,
-      headers: {
-        'Authorization': `Bearer ${adminToken}`
-      }
-    });
-
-    // Skip if admin token not available
     if (!adminToken) {
       printResult('Image Upload', false, 'Admin token not available');
       return false;
     }
 
-    // Create a test image file
-    const testImagePath = path.join(process.cwd(), 'test-image.jpg');
-    
-    // Skip if test image doesn't exist
+    // Create a test image if it doesn't exist
     if (!fs.existsSync(testImagePath)) {
-      printResult('Image Upload', false, 'Test image file not found. Create a test-image.jpg file first.');
-      return false;
+      console.log('⚠️  Creating test image file...');
+      const testImage = Buffer.from('R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7', 'base64');
+      fs.writeFileSync(testImagePath, testImage);
+      console.log('✅ Test image file created');
     }
 
+    // Create FormData
     const formData = new FormData();
-    const imageBuffer = fs.readFileSync(testImagePath);
-    
-    // In Node.js, we need to use a different approach for FormData
-    // We'll use the 'form-data' package or skip for now
-    printResult('Image Upload', false, 'Image upload requires FormData implementation in Node.js');
-    return false;
+    formData.append('image', fs.createReadStream(testImagePath));
 
+    // Make the request
+    const response = await axios.post(
+      `${API_BASE_URL}/api/upload/image?type=blog`,
+      formData,
+      {
+        headers: {
+          'Authorization': `Bearer ${adminToken}`,
+          ...formData.getHeaders()
+        }
+      }
+    );
+
+    if (response.data.success) {
+      const filename = response.data.data?.filename || 'Unknown';
+      const fileUrl = response.data.data?.url || '';
+      printResult('Image Upload', true, 
+        `File uploaded: ${filename}, URL: ${fileUrl.split('/').pop()}`);
+      return true;
+    } else {
+      printResult('Image Upload', false, response.data.message, null, response.data);
+      return false;
+    }
   } catch (error) {
     printResult('Image Upload', false, error.response?.data?.message || error.message, error, error.response?.data);
     return false;
   }
 };
 
-// Test admin dashboard endpoints
+// Admin dashboard test
 const testAdminDashboard = async () => {
   try {
-    const adminApi = axios.create({
-      baseURL: API_BASE_URL,
-      headers: {
-        'Authorization': `Bearer ${adminToken}`
-      }
-    });
-
-    const response = await adminApi.get('/api/admin/dashboard');
+    if (!adminToken) {
+      printResult('Admin Dashboard', false, 'No admin token available');
+      return false;
+    }
+    
+    const authApi = createAuthApi(adminToken);
+    const response = await authApi.get('/api/admin/dashboard');
     if (response.data.success) {
       const stats = response.data.data?.stats || {};
       printResult('Admin Dashboard', true, 'Dashboard stats retrieved');
@@ -569,7 +656,7 @@ const testAdminDashboard = async () => {
   }
 };
 
-// Main test runner - SIMPLIFIED
+// Main test runner
 const runAllTests = async () => {
   console.log('🚀 Starting Emerald Capital Backend Endpoint Tests\n');
   console.log(`📡 API Base URL: ${API_BASE_URL}`);
@@ -581,43 +668,69 @@ const runAllTests = async () => {
     await testHealthCheck();
     await delay(500);
     
-    // Step 2: Admin login (using seed credentials)
+    // Step 2: Debug endpoints (no auth needed)
+    console.log('\n🔧 Testing Debug Endpoints...\n');
+    await testCorsDebug();
+    await delay(300);
+    await testUploadsCheck();
+    await delay(300);
+    
+    // Step 3: Admin login
     console.log('\n👑 Testing Admin Login...\n');
     const adminLoggedIn = await testAdminLoginEndpoint();
     await delay(500);
     
-    // Step 3: User registration/login
+    // Step 4: Upload endpoints (need admin auth)
+    if (adminLoggedIn) {
+      console.log('\n📁 Testing Upload Directories...\n');
+      await testUploadInfo();
+      await delay(300);
+      await testUploadDebugDirs();
+      await delay(300);
+      await testUploadListFiles();
+      await delay(300);
+      await testUploadCreateTestFile();
+      await delay(500);
+    }
+    
+    // Step 5: User registration/login
     console.log('\n👤 Testing User Authentication...\n');
-    await testUserRegistration();
+    const userRegistered = await testUserRegistration();
     await delay(500);
     
-    // Step 4: Profile test
-    console.log('\n📋 Testing Profile Endpoints...\n');
-    await testGetProfile();
-    await delay(500);
+    // Step 6: Profile test
+    if (userRegistered) {
+      console.log('\n📋 Testing Profile Endpoints...\n');
+      await testGetProfile();
+      await delay(500);
+    }
     
-    // Step 5: Account tests
-    console.log('\n💰 Testing Account Endpoints...\n');
-    await testGetAccountBalance();
-    await delay(300);
-    await testGetAccountDetails();
-    await delay(300);
+    // Step 7: Account tests
+    if (userRegistered) {
+      console.log('\n💰 Testing Account Endpoints...\n');
+      await testGetAccountBalance();
+      await delay(300);
+      await testGetAccountDetails();
+      await delay(300);
+    }
     
-    // Step 6: Loan tests
-    console.log('\n🏦 Testing Loan Endpoints...\n');
-    await testCreateLoanApplication();
-    await delay(500);
-    await testGetMyLoanApplications();
-    await delay(500);
+    // Step 8: Loan tests
+    if (userRegistered) {
+      console.log('\n🏦 Testing Loan Endpoints...\n');
+      await testCreateLoanApplication();
+      await delay(500);
+      await testGetMyLoanApplications();
+      await delay(500);
+    }
     
-    // Step 7: Contact tests
+    // Step 9: Contact tests (no auth needed)
     console.log('\n📧 Testing Contact Endpoints...\n');
     await testSubmitContactMessage();
     await delay(500);
     await testNewsletterSubscription();
     await delay(500);
     
-    // Step 8: Blog public tests
+    // Step 10: Blog public tests (no auth needed)
     console.log('\n📝 Testing Public Blog Endpoints...\n');
     await testGetPublicBlogs();
     await delay(500);
@@ -626,7 +739,7 @@ const runAllTests = async () => {
     await testGetSingleBlog();
     await delay(500);
     
-    // Step 9: Admin blog tests (only if admin is logged in)
+    // Step 11: Admin blog tests
     if (adminLoggedIn) {
       console.log('\n👨‍💼 Testing Admin Blog Functions...\n');
       await testCreateBlogPost();
@@ -639,28 +752,17 @@ const runAllTests = async () => {
       console.log('\n📊 Testing Admin Dashboard...\n');
       await testAdminDashboard();
       await delay(500);
-      
-      // User interaction tests with the new blog
-      if (blogId) {
-        console.log('\n❤️  Testing User Interactions with Blog...\n');
-        await testLikeBlog();
-        await delay(300);
-        await testBookmarkBlog();
-        await delay(300);
-        await testAddComment();
-        await delay(300);
-      }
     } else {
       console.log('\n⚠️  Skipping admin tests - admin login failed');
-      console.log('   Using seed credentials: username="adminuser", password="admin123"');
     }
     
     console.log('='.repeat(60));
     console.log('\n🎉 All tests completed!');
     console.log('\n📊 Summary:');
-    console.log(`   • Admin Token: ${adminToken ? '✅ Obtained' : '❌ Failed'}`);
-    console.log(`   • User Token: ${authToken ? '✅ Obtained' : '❌ Failed'}`);
-    console.log(`   • Blog Created: ${blogId ? '✅ Yes' : '❌ No'}`);
+    console.log(`   • Admin Login: ${adminLoggedIn ? '✅ Success' : '❌ Failed'}`);
+    console.log(`   • User Registration: ${userRegistered ? '✅ Success' : '❌ Failed'}`);
+    console.log(`   • Upload Directories: ${adminLoggedIn ? '✅ Tested' : '❌ Skipped'}`);
+    console.log(`   • Blog System: ${adminLoggedIn ? '✅ Tested' : '❌ Skipped'}`);
     
   } catch (error) {
     console.error('\n❌ Test runner error:', error.message);

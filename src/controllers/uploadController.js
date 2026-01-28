@@ -2,10 +2,9 @@ import fs from 'fs';
 import path from 'path';
 
 // Upload image controller
+// uploadController.js - uploadImage function
 export const uploadImage = async (req, res) => {
   try {
-    console.log('📤 Upload request received');
-    
     if (!req.file) {
       return res.status(400).json({
         success: false,
@@ -13,58 +12,39 @@ export const uploadImage = async (req, res) => {
       });
     }
 
-    // Check if file exists
-    if (!fs.existsSync(req.file.path)) {
-      return res.status(500).json({
-        success: false,
-        message: 'File upload failed - file not saved'
-      });
-    }
-
-    // Determine the URL path based on upload type
-    let urlPath = '';
+    // Construct the URL that matches your static file serving
+    let filePath = '';
     if (req.query.type === 'blog') {
-      urlPath = `/uploads/blog-images/${req.file.filename}`;
+      filePath = `blog-images/${req.file.filename}`;
     } else if (req.query.type === 'profile') {
-      urlPath = `/uploads/profiles/${req.file.filename}`;
+      filePath = `profiles/${req.file.filename}`;
     } else if (req.query.type === 'document') {
-      urlPath = `/uploads/documents/${req.file.filename}`;
+      filePath = `documents/${req.file.filename}`;
     } else {
-      urlPath = `/uploads/general/${req.file.filename}`;
+      filePath = `general/${req.file.filename}`;
     }
 
-    console.log('✅ File uploaded successfully:', {
-      filename: req.file.filename,
-      path: req.file.path,
-      size: req.file.size,
-      mimetype: req.file.mimetype,
-      url: urlPath
-    });
+    const fullUrl = `${req.protocol}://${req.get('host')}/uploads/${filePath}`;
 
     res.status(200).json({
       success: true,
       message: 'File uploaded successfully',
       data: {
         filename: req.file.filename,
-        originalname: req.file.originalname,
-        mimetype: req.file.mimetype,
+        originalName: req.file.originalname,
         size: req.file.size,
-        url: urlPath,
-        path: req.file.path
+        mimetype: req.file.mimetype,
+        path: `/uploads/${filePath}`,
+        url: fullUrl,
+        type: req.query.type || 'general'
       }
     });
   } catch (error) {
-    console.error('❌ Upload error:', error);
-    
-    // Clean up the file if there was an error
-    if (req.file && req.file.path && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-    
+    console.error('Upload controller error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to upload file',
-      error: error.message
+      message: 'Error uploading file',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
