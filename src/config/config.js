@@ -22,9 +22,20 @@ const config = {
     password: process.env.EMAIL_PASSWORD,
   },
 
+  // Cloudinary configuration
+  cloudinary: {
+    cloudName: process.env.CLOUDINARY_CLOUD_NAME,
+    apiKey: process.env.CLOUDINARY_API_KEY,
+    apiSecret: process.env.CLOUDINARY_API_SECRET,
+    uploadPreset: process.env.CLOUDINARY_UPLOAD_PRESET || 'emerald_capital',
+  },
+
+  // Upload configuration (for local fallback if needed)
   upload: {
     path: process.env.UPLOAD_PATH || './uploads',
-    maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024, // 5MB
+    maxFileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024, // 10MB
+    allowedImageTypes: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'],
+    allowedFileTypes: ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'doc', 'docx', 'webp', 'svg'],
   },
 
   // ✅ Updated CORS configuration
@@ -34,6 +45,7 @@ const config = {
       'http://localhost:3000',
       'http://localhost:5174',
       'https://emerald-capital-u8zr.vercel.app',
+      'https://emerald-capital.netlify.app',
       process.env.CLIENT_URL,
     ].filter(Boolean),
     credentials: true,
