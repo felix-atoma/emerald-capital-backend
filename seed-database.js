@@ -2,7 +2,6 @@
 import mongoose from 'mongoose';
 import bcrypt from 'bcryptjs';
 import dotenv from 'dotenv';
-import validator from 'validator';
 
 dotenv.config();
 
@@ -292,29 +291,28 @@ const seedDatabase = async () => {
     });
     console.log('✅ Connected to MongoDB\n');
 
-    // Clear existing test data
-    console.log('🧹 Clearing existing test data...');
-    await User.deleteMany({ 
-      email: { 
-        $in: ['admin@emerald.com', 'john.doe@test.com', 'officer@emerald.com'] 
-      } 
-    });
-    await Blog.deleteMany({});
-    console.log('✅ Cleared existing test data\n');
+    // Clear existing test data (optional - uncomment if you want fresh data)
+    // await User.deleteMany({ email: { $in: ['admin@test.com', 'john.doe@test.com'] } });
+    // await Blog.deleteMany({});
+    // console.log('🧹 Cleared existing test data\n');
 
-    // Create Emerald Admin user
-    console.log('👑 Creating Emerald Admin user...');
+    // Check if users already exist
+    console.log('👥 Checking existing users...');
+    const existingAdmin = await User.findOne({ email: 'admin@test.com' });
+    const existingUser = await User.findOne({ email: 'john.doe@test.com' });
+
+    // Admin user data - ALL required fields
     const adminData = {
       sex: 'male',
-      firstName: 'Emerald',
-      lastName: 'Admin',
+      firstName: 'Admin',
+      lastName: 'User',
       middleName: 'System',
       dateOfBirth: new Date('1985-01-01'),
       phone: '0241111111',
       otherPhone: '0242222222',
-      ghanaCardNumber: 'GHA-123456789-A', // Fixed format
-      email: 'admin@emerald.com',
-      homeAddress: 'Emerald Capital Headquarters, Accra, Ghana',
+      ghanaCardNumber: 'GHA-987654321-B',
+      email: 'admin@test.com',
+      homeAddress: '456 Admin Street, Accra, Ghana',
       region: 'Greater Accra',
       nextOfKin: [{
         relationship: 'spouse',
@@ -324,23 +322,18 @@ const seedDatabase = async () => {
       nextOfKinPhone: '0243333333',
       employmentType: ['private'],
       employer: 'Emerald Capital Ltd',
-      staffNumber: 'EMERALD-ADMIN-001',
+      staffNumber: 'ADM001',
       employmentDate: new Date('2015-01-01'),
-      gradeLevel: 'Administrator',
-      lastMonthPay: 15000,
-      username: 'EmeraldAdmin',
-      password: 'Emerald@Admin1&$',
-      isVerified: true,
+      gradeLevel: 'Director',
+      lastMonthPay: 10000,
+      username: 'adminuser',
+      password: 'admin123', // Will be hashed by pre-save hook
+      agreementConfirmed: true,
       isActive: true,
       role: 'admin'
     };
 
-    const adminUser = new User(adminData);
-    await adminUser.save();
-    console.log('✅ Emerald Admin user created');
-
-    // Create regular test user
-    console.log('\n👤 Creating regular test user...');
+    // Regular user data - ALL required fields
     const userData = {
       sex: 'male',
       firstName: 'John',
@@ -349,7 +342,7 @@ const seedDatabase = async () => {
       dateOfBirth: new Date('1990-01-15'),
       phone: '0241234567',
       otherPhone: '0247654321',
-      ghanaCardNumber: 'GHA-987654321-B', // Fixed format
+      ghanaCardNumber: 'GHA-123456789-A',
       email: 'john.doe@test.com',
       homeAddress: '123 Test Street, Accra, Ghana',
       region: 'Greater Accra',
@@ -366,369 +359,172 @@ const seedDatabase = async () => {
       gradeLevel: 'Manager',
       lastMonthPay: 5000,
       username: 'johndoe',
-      password: 'password123',
-      isVerified: true,
+      password: 'password123', // Will be hashed by pre-save hook
+      agreementConfirmed: true,
       isActive: true,
       role: 'user'
     };
 
-    const regularUser = new User(userData);
-    await regularUser.save();
-    console.log('✅ Regular user created');
+    // Create or update admin user
+    console.log('\n👨‍💼 Creating/updating admin user...');
+    let adminUser;
+    if (existingAdmin) {
+      // Update password if it's being changed
+      if (adminData.password && adminData.password !== 'admin123') {
+        adminData.password = await bcrypt.hash(adminData.password, 12);
+      }
+      Object.assign(existingAdmin, adminData);
+      await existingAdmin.save();
+      adminUser = existingAdmin;
+      console.log('✅ Admin user updated');
+    } else {
+      // Create new admin - password will be hashed by pre-save hook
+      adminUser = new User(adminData);
+      await adminUser.save();
+      console.log('✅ Admin user created');
+    }
 
-    // Create officer user
-    console.log('\n👮 Creating officer user...');
-    const officerData = {
-      sex: 'female',
-      firstName: 'Sarah',
-      lastName: 'Officer',
-      middleName: 'Mensah',
-      dateOfBirth: new Date('1988-06-20'),
-      phone: '0245555555',
-      otherPhone: '0246666666',
-      ghanaCardNumber: 'GHA-555555555-C', // Fixed format
-      email: 'officer@emerald.com',
-      homeAddress: '456 Officer Avenue, Kumasi, Ghana',
-      region: 'Ashanti',
-      nextOfKin: [{
-        relationship: 'sibling',
-        firstName: 'David',
-        lastName: 'Officer'
-      }],
-      nextOfKinPhone: '0247777777',
-      employmentType: ['private'],
-      employer: 'Emerald Capital Ltd',
-      staffNumber: 'EMERALD-OFFICER-001',
-      employmentDate: new Date('2018-03-15'),
-      gradeLevel: 'Loan Officer',
-      lastMonthPay: 8000,
-      username: 'sarah.officer',
-      password: 'Officer@123',
-      isVerified: true,
-      isActive: true,
-      role: 'officer'
-    };
-
-    const officerUser = new User(officerData);
-    await officerUser.save();
-    console.log('✅ Officer user created');
+    // Create or update regular user
+    console.log('\n👤 Creating/updating regular user...');
+    let regularUser;
+    if (existingUser) {
+      // Update password if it's being changed
+      if (userData.password && userData.password !== 'password123') {
+        userData.password = await bcrypt.hash(userData.password, 12);
+      }
+      Object.assign(existingUser, userData);
+      await existingUser.save();
+      regularUser = existingUser;
+      console.log('✅ Regular user updated');
+    } else {
+      // Create new user - password will be hashed by pre-save hook
+      regularUser = new User(userData);
+      await regularUser.save();
+      console.log('✅ Regular user created');
+    }
 
     // Create test blogs
     console.log('\n📝 Creating test blogs...');
     
     const blogs = [
       {
-        title: "Emerald Capital: Your Trusted Partner for Financial Growth in Ghana",
-        excerpt: "Discover how Emerald Capital is revolutionizing the financial landscape in Ghana with innovative loan solutions, flexible repayment plans, and exceptional customer service.",
+        title: "Enhancing Your Credit Score: 5 Effective Tips to Secure a Loan in Ghana",
+        excerpt: "Master the art of credit management with proven strategies that can significantly improve your credit score and increase your loan approval chances in Ghana's competitive financial landscape.",
         content: `
-          <h1>Welcome to Emerald Capital</h1>
-          <p>At Emerald Capital, we believe that financial empowerment is the cornerstone of personal and business growth. As one of Ghana's leading financial service providers, we're committed to helping you achieve your financial goals.</p>
+          <h1>Enhancing Your Credit Score in Ghana</h1>
+          <p>Your credit score is one of the most important factors that lenders consider when evaluating your loan application. In Ghana, maintaining a good credit score can mean the difference between getting approved for that crucial business loan or being turned down.</p>
           
-          <h2>Our Loan Products</h2>
-          <p>We offer a wide range of loan products tailored to meet diverse needs:</p>
+          <h2>1. Pay Your Bills on Time</h2>
+          <p>Payment history accounts for 35% of your credit score. Ensure you pay all your bills – including utility bills, mobile money loans, and existing loans – on or before their due dates.</p>
           
-          <h3>1. Personal Loans</h3>
-          <p>• Amount: GHS 1,000 - GHS 50,000</p>
-          <p>• Tenure: 3 - 24 months</p>
-          <p>• Purpose: Education, medical, home improvement, travel</p>
+          <h2>2. Keep Credit Utilization Low</h2>
+          <p>Try to use less than 30% of your available credit at any given time. High credit utilization can signal financial distress to lenders.</p>
           
-          <h3>2. Business Loans</h3>
-          <p>• Amount: GHS 5,000 - GHS 500,000</p>
-          <p>• Tenure: 6 - 60 months</p>
-          <p>• Ideal for: Startups, expansion, equipment purchase</p>
+          <h2>3. Maintain a Mix of Credit Types</h2>
+          <p>Having different types of credit (installment loans, credit cards, mobile money loans) shows lenders you can handle various financial responsibilities.</p>
           
-          <h3>3. Salary Advance Loans</h3>
-          <p>• Amount: Up to 50% of monthly salary</p>
-          <p>• Tenure: 1 month (repayable on next payday)</p>
-          <p>• Quick disbursement: Within 24 hours</p>
+          <h2>4. Avoid Multiple Loan Applications</h2>
+          <p>Each loan application creates a hard inquiry on your credit report. Too many inquiries in a short period can lower your score.</p>
           
-          <h2>Why Choose Emerald Capital?</h2>
-          <ul>
-            <li><strong>Competitive Interest Rates:</strong> Lower than industry average</li>
-            <li><strong>Flexible Repayment:</strong> Customized to your cash flow</li>
-            <li><strong>Quick Approval:</strong> 48-hour processing for complete applications</li>
-            <li><strong>No Hidden Charges:</strong> Transparent fee structure</li>
-            <li><strong>Digital Platform:</strong> Apply and manage loans online</li>
-            <li><strong>Customer Support:</strong> Dedicated relationship managers</li>
-          </ul>
+          <h2>5. Monitor Your Credit Report Regularly</h2>
+          <p>Check your credit report at least once a year for errors. You're entitled to one free credit report annually from credit bureaus in Ghana.</p>
           
-          <h2>Eligibility Criteria</h2>
-          <p>To qualify for an Emerald Capital loan, you need to:</p>
-          <p>• Be a Ghanaian citizen aged 21-60 years</p>
-          <p>• Have a regular source of income</p>
-          <p>• Provide valid Ghana Card</p>
-          <p>• Have an active bank account</p>
-          <p>• Provide proof of address</p>
-          
-          <h2>How to Apply</h2>
-          <p>1. <strong>Register:</strong> Create your account on our platform</p>
-          <p>2. <strong>Complete Profile:</strong> Provide required documents</p>
-          <p>3. <strong>Choose Loan:</strong> Select product and amount</p>
-          <p>4. <strong>Submit Application:</strong> Our team will review</p>
-          <p>5. <strong>Get Approved:</strong> Sign agreement and receive funds</p>
-          
-          <p>Join thousands of satisfied customers who have transformed their financial lives with Emerald Capital. Your journey to financial freedom starts here!</p>
+          <p>By following these tips consistently, you can improve your credit score over time and increase your chances of securing favorable loan terms from financial institutions across Ghana.</p>
         `,
-        category: "Company News",
-        author: "Emerald Admin",
+        category: "Credit & Loans",
+        author: "Michael Boateng",
         authorId: adminUser._id,
-        readTime: 10,
-        views: 1500,
-        likes: [regularUser._id, officerUser._id],
+        readTime: 6,
+        views: 2450,
+        likes: [regularUser._id],
         isFeatured: true,
         isPublished: true,
-        tags: ['emerald capital', 'loans', 'finance', 'ghana', 'personal loans', 'business loans']
+        tags: ['credit score', 'loans', 'finance', 'ghana', 'banking']
       },
       {
-        title: "Understanding Loan Interest Rates in Ghana: Fixed vs Variable Explained",
-        excerpt: "Get expert insights into different types of interest rates and learn how to choose the best option for your financial situation in Ghana's lending market.",
+        title: "Understanding Mobile Money Loans in Ghana: A Complete Guide",
+        excerpt: "Explore the revolutionary world of mobile money services that have transformed financial access, making quick loans more accessible than ever for Ghanaian individuals and businesses.",
         content: `
-          <h1>Demystifying Loan Interest Rates in Ghana</h1>
-          <p>Understanding interest rates is crucial when taking out a loan. In Ghana, lenders typically offer two main types of interest rates: fixed and variable. Each has its advantages and considerations.</p>
+          <h1>The Mobile Money Loan Revolution in Ghana</h1>
+          <p>Mobile money has completely transformed the financial landscape in Ghana, making financial services accessible to millions who were previously unbanked. One of the most significant developments has been the rise of mobile money loans.</p>
           
-          <h2>Fixed Interest Rates</h2>
-          <h3>What are they?</h3>
-          <p>A fixed interest rate remains constant throughout the loan tenure. Your monthly payments stay the same, making budgeting predictable.</p>
+          <h2>What Are Mobile Money Loans?</h2>
+          <p>Mobile money loans are short-term loans disbursed and repaid through mobile money platforms like MTN MoMo, Vodafone Cash, and AirtelTigo Money. These loans typically range from GHS 50 to GHS 5,000 with repayment periods of 7 to 90 days.</p>
           
-          <h3>Advantages:</h3>
+          <h2>How Do They Work?</h2>
+          <p>1. <strong>Application:</strong> Through USSD codes, mobile apps, or SMS</p>
+          <p>2. <strong>Approval:</strong> Automated based on your transaction history</p>
+          <p>3. <strong>Disbursement:</strong> Funds sent directly to your mobile wallet</p>
+          <p>4. <strong>Repayment:</strong> Automatic deduction or manual payment</p>
+          
+          <h2>Key Providers in Ghana</h2>
           <ul>
-            <li><strong>Predictability:</strong> Know exactly what you'll pay each month</li>
-            <li><strong>Budgeting Ease:</strong> Easy to plan your finances</li>
-            <li><strong>Protection:</strong> Shielded from market rate increases</li>
+            <li><strong>MTN MoMo Loan:</strong> Up to GHS 1,000 for existing MTN Mobile Money users</li>
+            <li><strong>Vodafone Cash Loan:</strong> Quick loans for Vodafone Cash subscribers</li>
+            <li><strong>AirtelTigo Money Loan:</strong> Loans for AirtelTigo Money users</li>
+            <li><strong>Bank-backed Solutions:</strong> Partnerships like Fidelity Bank's Quick Loan</li>
           </ul>
           
-          <h3>Considerations:</h3>
-          <ul>
-            <li>Usually slightly higher than initial variable rates</li>
-            <li>No benefit if market rates decrease</li>
-          </ul>
+          <h2>Advantages</h2>
+          <p>• Instant access to funds</p>
+          <p>• No collateral required</p>
+          <p>• Convenient application process</p>
+          <p>• Builds credit history</p>
           
-          <h2>Variable Interest Rates</h2>
-          <h3>What are they?</h3>
-          <p>Variable rates fluctuate based on market conditions, often tied to the Bank of Ghana's policy rate or interbank rates.</p>
+          <h2>Things to Consider</h2>
+          <p>• Higher interest rates than traditional banks</p>
+          <p>• Short repayment periods</p>
+          <p>• Default penalties can be steep</p>
+          <p>• Limited loan amounts</p>
           
-          <h3>Advantages:</h3>
-          <ul>
-            <li><strong>Lower Initial Rate:</strong> Often start lower than fixed rates</li>
-            <li><strong>Potential Savings:</strong> Can benefit from rate decreases</li>
-          </ul>
-          
-          <h3>Considerations:</h3>
-          <ul>
-            <li><strong>Uncertainty:</strong> Monthly payments can change</li>
-            <li><strong>Risk:</strong> Payments increase if rates go up</li>
-            <li><strong>Budgeting Challenge:</strong> Harder to plan long-term</li>
-          </ul>
-          
-          <h2>Current Market Trends in Ghana</h2>
-          <p>As of 2024, interest rates in Ghana typically range from:</p>
-          <ul>
-            <li><strong>Personal Loans:</strong> 24% - 36% per annum</li>
-            <li><strong>Business Loans:</strong> 20% - 30% per annum</li>
-            <li><strong>Mortgages:</strong> 18% - 25% per annum</li>
-          </ul>
-          
-          <h2>Factors Affecting Your Interest Rate</h2>
-          <p>Lenders consider several factors when determining your rate:</p>
-          <ol>
-            <li><strong>Credit Score:</strong> Higher scores get better rates</li>
-            <li><strong>Loan Amount:</strong> Larger loans may get preferential rates</li>
-            <li><strong>Tenure:</strong> Shorter terms often have lower rates</li>
-            <li><strong>Income Stability:</strong> Regular income can lower your rate</li>
-            <li><strong>Collateral:</strong> Secured loans typically have lower rates</li>
-          </ol>
-          
-          <h2>Tips for Getting the Best Rate</h2>
-          <p>1. <strong>Improve Your Credit Score:</strong> Pay bills on time, reduce debt</p>
-          <p>2. <strong>Compare Lenders:</strong> Shop around for the best offer</p>
-          <p>3. <strong>Negotiate:</strong> Don't accept the first offer</p>
-          <p>4. <strong>Consider a Co-signer:</strong> Someone with better credit can help</p>
-          <p>5. <strong>Choose the Right Tenure:</strong> Balance monthly payments with total interest</p>
-          
-          <h2>Emerald Capital's Approach</h2>
-          <p>At Emerald Capital, we offer:</p>
-          <ul>
-            <li><strong>Competitive Fixed Rates:</strong> For customers who value predictability</li>
-            <li><strong>Customized Solutions:</strong> Rates tailored to your profile</li>
-            <li><strong>Transparent Pricing:</strong> No hidden fees or charges</li>
-            <li><strong>Rate Match Guarantee:</strong> We'll match any genuine lower rate</li>
-          </ul>
-          
-          <p>Remember, the lowest interest rate isn't always the best deal. Consider all factors including fees, flexibility, and customer service when choosing a lender.</p>
+          <p>Mobile money loans have democratized access to credit in Ghana, but they should be used responsibly as part of a broader financial strategy.</p>
         `,
-        category: "Financial Education",
-        author: "Sarah Officer",
-        authorId: officerUser._id,
-        readTime: 12,
-        views: 3200,
+        category: "Digital Banking",
+        author: "Sarah Mensah",
+        authorId: adminUser._id,
+        readTime: 8,
+        views: 4320,
         likes: [adminUser._id, regularUser._id],
-        isFeatured: true,
         isPublished: true,
-        tags: ['interest rates', 'loans', 'finance education', 'ghana', 'banking']
-      },
-      {
-        title: "5 Steps to Build Your Emergency Fund: A Ghanaian Perspective",
-        excerpt: "Learn practical strategies to build a financial safety net that can protect you during unexpected situations, tailored to the Ghanaian economic context.",
-        content: `
-          <h1>Building Your Emergency Fund in Ghana</h1>
-          <p>An emergency fund is your financial safety net - money set aside to cover unexpected expenses like medical emergencies, job loss, or urgent repairs. In Ghana's economic climate, having this cushion is more important than ever.</p>
-          
-          <h2>Why You Need an Emergency Fund</h2>
-          <ul>
-            <li><strong>Avoid Debt:</strong> Prevents taking high-interest loans for emergencies</li>
-            <li><strong>Peace of Mind:</strong> Reduces financial stress</li>
-            <li><strong>Financial Independence:</strong> Don't need to borrow from friends/family</li>
-            <li><strong>Opportunity Fund:</strong> Can seize good investment opportunities</li>
-          </ul>
-          
-          <h2>How Much Do You Need?</h2>
-          <p><strong>Starter Goal:</strong> 1 month of expenses (GHS 2,000 - GHS 5,000 for most Ghanaians)</p>
-          <p><strong>Intermediate Goal:</strong> 3 months of expenses</p>
-          <p><strong>Full Protection:</strong> 6 months of expenses</p>
-          
-          <h2>Step-by-Step Guide</h2>
-          
-          <h3>Step 1: Calculate Your Monthly Expenses</h3>
-          <p>Track all your expenses for one month:</p>
-          <ul>
-            <li>Rent/Mortgage</li>
-            <li>Utilities (electricity, water, internet)</li>
-            <li>Food and groceries</li>
-            <li>Transportation</li>
-            <li>School fees (if applicable)</li>
-            <li>Insurance premiums</li>
-            <li>Other essentials</li>
-          </ul>
-          
-          <h3>Step 2: Set Your Target</h3>
-          <p>Multiply your monthly expenses by the number of months you want to cover. Example:</p>
-          <p>Monthly expenses: GHS 3,000</p>
-          <p>3-month fund target: GHS 9,000</p>
-          <p>6-month fund target: GHS 18,000</p>
-          
-          <h3>Step 3: Choose Where to Keep It</h3>
-          <p>Your emergency fund should be:</p>
-          <ul>
-            <li><strong>Accessible:</strong> Available within 24-48 hours</li>
-            <li><strong>Safe:</strong> Not subject to market fluctuations</li>
-            <li><strong>Separate:</strong> Different from your regular account</li>
-          </ul>
-          
-          <p>Good options in Ghana:</p>
-          <ul>
-            <li>Savings account at a reputable bank</li>
-            <li>Money market funds</li>
-            <li>Treasury bills (for portion of fund)</li>
-            <li>Mobile money savings (for small amounts)</li>
-          </ul>
-          
-          <h3>Step 4: Start Small and Be Consistent</h3>
-          <p>Don't wait to save large amounts. Start with what you can:</p>
-          <ul>
-            <li>Save 10% of your monthly income</li>
-            <li>Save windfalls (bonuses, tax refunds)</li>
-            <li>Cut one unnecessary expense each month</li>
-            <li>Use the "spare change" method</li>
-          </ul>
-          
-          <h3>Step 5: Automate Your Savings</h3>
-          <p>Set up automatic transfers:</p>
-          <ul>
-            <li>Schedule transfer on payday</li>
-            <li>Use bank standing orders</li>
-            <li>Set up mobile money auto-save</li>
-            <li>Use savings apps with automation</li>
-          </ul>
-          
-          <h2>Ghana-Specific Tips</h2>
-          <p><strong>1. Susu Contributions:</strong> Traditional savings method that enforces discipline</p>
-          <p><strong>2. Fixed Deposit Accounts:</strong> Earn interest while keeping funds safe</p>
-          <p><strong>3. Government Bonds:</strong> Consider for longer-term emergency funds</p>
-          <p><strong>4. Avoid 'Sika Mpepee':</strong> Resist the temptation to spend your fund</p>
-          
-          <h2>When to Use Your Emergency Fund</h2>
-          <p><strong>✅ Legitimate Emergencies:</strong></p>
-          <ul>
-            <li>Medical emergencies not covered by NHIS</li>
-            <li>Unexpected job loss</li>
-            <li>Essential home/car repairs</li>
-            <li>Family emergencies</li>
-          </ul>
-          
-          <p><strong>❌ NOT for:</strong></p>
-          <ul>
-            <li>Holiday shopping</li>
-            <li>Latest smartphone</li>
-            <li>Wedding expenses (unless absolutely necessary)</li>
-            <li>Non-essential upgrades</li>
-          </ul>
-          
-          <h2>Rebuilding After Use</h2>
-          <p>If you dip into your emergency fund:</p>
-          <ol>
-            <li>Pause other savings temporarily</li>
-            <li>Increase your monthly contribution</li>
-            <li>Look for additional income sources</li>
-            <li>Cut discretionary spending until rebuilt</li>
-          </ol>
-          
-          <p>Remember: Building an emergency fund is a marathon, not a sprint. Start today, be consistent, and watch your financial security grow!</p>
-        `,
-        category: "Savings",
-        author: "Emerald Admin",
-        authorId: adminUser._id,
-        readTime: 15,
-        views: 5400,
-        likes: [adminUser._id, regularUser._id, officerUser._id],
-        bookmarks: [regularUser._id],
-        comments: [{
-          user: regularUser._id,
-          text: "Very practical advice! I've started my emergency fund using these tips.",
-          name: "John Doe",
-          createdAt: new Date('2024-01-15')
-        }],
-        isFeatured: true,
-        isPublished: true,
-        tags: ['emergency fund', 'savings', 'financial planning', 'ghana', 'personal finance']
+        tags: ['mobile money', 'digital loans', 'fintech', 'ghana', 'banking']
       }
     ];
 
     let blogsCreated = 0;
+    let blogsSkipped = 0;
 
     for (const blogData of blogs) {
-      const blog = new Blog(blogData);
-      await blog.save();
-      blogsCreated++;
-      console.log(`✅ Created: ${blogData.title}`);
+      const existingBlog = await Blog.findOne({ title: blogData.title });
+      if (!existingBlog) {
+        // Generate slug automatically
+        const blog = new Blog(blogData);
+        await blog.save();
+        blogsCreated++;
+        console.log(`✅ Created: ${blogData.title}`);
+      } else {
+        blogsSkipped++;
+        console.log(`⏭️  Skipped (exists): ${blogData.title}`);
+      }
     }
 
     console.log(`\n📊 Summary:`);
-    console.log(`✅ Users created: 3`);
+    console.log(`✅ Users created/updated: 2`);
     console.log(`✅ Blogs created: ${blogsCreated}`);
+    console.log(`⏭️  Blogs skipped: ${blogsSkipped}`);
     console.log(`📚 Total blogs in database: ${await Blog.countDocuments()}`);
 
     console.log('\n🎉 Database seeding completed successfully!');
-    console.log('\n🔑 Login Credentials:');
-    console.log('\n👑 Emerald Admin:');
-    console.log('  Username: EmeraldAdmin');
-    console.log('  Password: Emerald@Admin1&$');
-    console.log('  Email: admin@emerald.com');
-    console.log('  Role: Admin');
-    
-    console.log('\n👮 Officer User:');
-    console.log('  Username: sarah.officer');
-    console.log('  Password: Officer@123');
-    console.log('  Email: officer@emerald.com');
-    console.log('  Role: Officer');
-    
-    console.log('\n👤 Regular User:');
+    console.log('\n🔑 Test Credentials:');
+    console.log('Admin User:');
+    console.log('  Username: adminuser');
+    console.log('  Password: admin123');
+    console.log('  Email: admin@test.com');
+    console.log('\nRegular User:');
     console.log('  Username: johndoe');
     console.log('  Password: password123');
     console.log('  Email: john.doe@test.com');
-    console.log('  Role: User');
     
-    console.log('\n💡 Note: All users have "isVerified: true" and "isActive: true"');
-    console.log('\n🚀 You can now test the application with these credentials.');
+    console.log('\n🚀 You can now run the endpoint tests.');
 
     process.exit(0);
   } catch (error) {
@@ -737,5 +533,8 @@ const seedDatabase = async () => {
     process.exit(1);
   }
 };
+
+// Import validator for email validation
+import validator from 'validator';
 
 seedDatabase();

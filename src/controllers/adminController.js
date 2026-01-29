@@ -4,7 +4,7 @@ import ContactMessage from '../models/ContactMessage.js';
 import Newsletter from '../models/Newsletter.js';
 import jwt from 'jsonwebtoken';
 
-// 🔐 ADMIN LOGIN FUNCTION
+// 🔐 ADMIN LOGIN FUNCTION - FIXED: Removed .toLowerCase()
 export const adminLogin = async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -19,9 +19,9 @@ export const adminLogin = async (req, res) => {
       });
     }
 
-    // Find admin user
+    // Find admin user - FIX: Removed .toLowerCase()
     const admin = await User.findOne({ 
-      username: username.trim().toLowerCase(),
+      username: username.trim(),  // CHANGED: Removed .toLowerCase()
       role: { $in: ['admin', 'officer'] }
     }).select('+password');
 
