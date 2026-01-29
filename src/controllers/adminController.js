@@ -2,6 +2,7 @@ import User from '../models/User.js';
 import LoanApplication from '../models/LoanApplication.js';
 import ContactMessage from '../models/ContactMessage.js';
 import Newsletter from '../models/Newsletter.js';
+import Blog from '../models/Blog.js'; // ADD THIS IMPORT
 import jwt from 'jsonwebtoken';
 
 // 🔐 ADMIN LOGIN FUNCTION - FIXED: Removed .toLowerCase()
@@ -305,6 +306,136 @@ export const getDashboardStats = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error while fetching dashboard statistics'
+    });
+  }
+};
+
+// 📊 BLOG STATISTICS - NEW FUNCTION
+export const getBlogStats = async (req, res) => {
+  try {
+    console.log('📊 Fetching blog statistics...');
+
+    // Get basic blog statistics
+    const totalBlogs = await Blog.countDocuments();
+    const publishedBlogs = await Blog.countDocuments({ isPublished: true });
+    const draftBlogs = await Blog.countDocuments({ isPublished: false });
+    const featuredBlogs = await Blog.countDocuments({ isFeatured: true });
+
+    // Get category statistics
+    const categoryStats = await Blog.aggregate([
+      { $group: { _id: '$category', count: { $sum: 1 } } },
+      { $sort: { count: -1 } }
+    ]);
+
+    // Get recent blog activity
+    const recentBlogs = await Blog.find()
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .select('title category views likes comments isPublished createdAt');
+
+    // Get popular blogs (by views)
+    const popularBlogs = await Blog.find()
+      .sort({ views: -1 })
+      .limit(5)
+      .select('title category views likes createdAt');
+
+    // Get monthly blog creation stats
+    const monthlyStats = await Blog.aggregate([
+      {
+        $group: {
+          _id: {
+            year: { $year: '$createdAt' },
+            month: { $month: '$createdAt' }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { '_id.year': -1, '_id.month': -1 } },
+      { $limit: 6 }
+    ]);
+
+    // Calculate growth (compared to last month)
+    const currentDate = new Date();
+    const currentMonth = currentDate.getMonth();
+    const currentYear = currentDate.getFullYear();
+    
+    const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+    const lastMonthYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+
+    const currentMonthCount = await Blog.countDocuments({
+      createdAt: {
+        $gte: new Date(currentYear, currentMonth, 1),
+        $lt: new Date(currentYear, currentMonth + 1, 1)
+      }
+    });
+
+    const lastMonthCount = await Blog.countDocuments({
+      createdAt: {
+        $gte: new Date(lastMonthYear, lastMonth, 1),
+        $lt: new Date(lastMonthYear, lastMonth + 1, 1)
+      }
+    });
+
+    // Calculate growth percentage
+    let growth = 0;
+    if (lastMonthCount > 0) {
+      growth = ((currentMonthCount - lastMonthCount) / lastMonthCount) * 100;
+    } else if (currentMonthCount > 0) {
+      growth = 100; // First month with blogs
+    }
+
+    // Format the response
+    const response = {
+      success: true,
+      data: {
+        stats: {
+          total: totalBlogs,
+          published: publishedBlogs,
+          drafts: draftBlogs,
+          featured: featuredBlogs,
+          currentMonth: currentMonthCount,
+          lastMonth: lastMonthCount,
+          growth: parseFloat(growth.toFixed(1))
+        },
+        categories: categoryStats.map(cat => ({
+          name: cat._id || 'Uncategorized',
+          count: cat.count
+        })),
+        recent: recentBlogs.map(blog => ({
+          id: blog._id,
+          title: blog.title,
+          category: blog.category,
+          views: blog.views || 0,
+          likes: blog.likes || 0,
+          comments: blog.comments?.length || 0,
+          isPublished: blog.isPublished,
+          createdAt: blog.createdAt
+        })),
+        popular: popularBlogs.map(blog => ({
+          id: blog._id,
+          title: blog.title,
+          category: blog.category,
+          views: blog.views || 0,
+          likes: blog.likes || 0,
+          createdAt: blog.createdAt
+        })),
+        monthly: monthlyStats.map(stat => ({
+          year: stat._id.year,
+          month: stat._id.month,
+          count: stat.count
+        }))
+      }
+    };
+
+    console.log('✅ Blog statistics retrieved successfully');
+    res.json(response);
+
+  } catch (error) {
+    console.error('❌ Get blog stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error while fetching blog statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

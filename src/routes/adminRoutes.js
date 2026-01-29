@@ -4,6 +4,7 @@ import {
   getAdminProfile,
   changeAdminPassword,
   getDashboardStats,
+  getBlogStats, // ADD THIS IMPORT
   getUsers,
   getUser,
   updateUser,
@@ -34,8 +35,11 @@ router.put('/change-password', changeAdminPassword);
 // Apply admin authorization to all routes below
 router.use(authorize('admin', 'officer'));
 
-// Dashboard and user management
+// Dashboard and statistics
 router.get('/dashboard', getDashboardStats);
+router.get('/blogs/stats', getBlogStats); // ADD THIS ROUTE
+
+// User management
 router.get('/users', getUsers);
 router.get('/users/:id', getUser);
 router.put('/users/:id', updateUser);
