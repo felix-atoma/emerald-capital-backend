@@ -10,8 +10,8 @@ import config from './config/config.js';
 import errorHandler from './middleware/errorHandler.js';
 import connectDB from './config/database.js';
 
-// Import AI routes
-import aiRoutes from './routes/ai.routes.js';
+// Import AI routes - COMMENTED OUT
+// import aiRoutes from './routes/ai.routes.js';
 
 // Import other routes
 import authRoutes from './routes/authRoutes.js';
@@ -176,16 +176,17 @@ const publicLimiter = rateLimit({
   skip: (req) => req.path.startsWith('/uploads/') || req.path.startsWith('/assets/'),
 });
 
-const aiLimiter = rateLimit({
-  windowMs: config.ai.rateLimit.windowMs,
-  max: config.ai.rateLimit.max,
-  message: {
-    success: false,
-    message: 'AI rate limit exceeded. Please try again later.',
-  },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// COMMENT OUT AI LIMITER since we're disabling AI
+// const aiLimiter = rateLimit({
+//   windowMs: config.ai.rateLimit.windowMs,
+//   max: config.ai.rateLimit.max,
+//   message: {
+//     success: false,
+//     message: 'AI rate limit exceeded. Please try again later.',
+//   },
+//   standardHeaders: true,
+//   legacyHeaders: false,
+// });
 
 // ==================== BODY PARSING ====================
 
@@ -379,7 +380,7 @@ app.get('/api/system/info', apiLimiter, (req, res) => {
       port: config.port,
       clientUrl: config.clientUrl,
       corsOrigins: config.cors.origin,
-      aiServices: config.getAvailableAIServices(),
+      // aiServices: config.getAvailableAIServices(), // COMMENTED OUT AI
     },
   };
   
@@ -409,38 +410,38 @@ app.get('/api/test/quick', publicLimiter, (req, res) => {
   });
 });
 
-// AI Status endpoint
-app.get('/api/ai/status', publicLimiter, (req, res) => {
-  const aiStatus = config.getAIServiceStatus();
+// COMMENT OUT AI Status endpoint
+// app.get('/api/ai/status', publicLimiter, (req, res) => {
+//   const aiStatus = config.getAIServiceStatus();
   
-  res.json({
-    success: true,
-    ai: aiStatus,
-    configuration: {
-      defaultService: config.ai.defaultService,
-      temperature: config.ai.temperature,
-      maxTokens: config.ai.maxTokens,
-      rateLimit: config.ai.rateLimit,
-    },
-    services: {
-      openai: {
-        configured: !!config.openai.apiKey,
-        model: config.openai.model,
-        maxTokens: config.openai.maxTokens,
-      },
-      gemini: {
-        configured: !!config.gemini.apiKey,
-        model: config.gemini.model,
-      },
-      claude: {
-        configured: !!config.claude.apiKey,
-        model: config.claude.model,
-        maxTokens: config.claude.maxTokens,
-      },
-    },
-    mockResponses: config.mockResponses,
-  });
-});
+//   res.json({
+//     success: true,
+//     ai: aiStatus,
+//     configuration: {
+//       defaultService: config.ai.defaultService,
+//       temperature: config.ai.temperature,
+//       maxTokens: config.ai.maxTokens,
+//       rateLimit: config.ai.rateLimit,
+//     },
+//     services: {
+//       openai: {
+//         configured: !!config.openai.apiKey,
+//         model: config.openai.model,
+//         maxTokens: config.openai.maxTokens,
+//       },
+//       gemini: {
+//         configured: !!config.gemini.apiKey,
+//         model: config.gemini.model,
+//       },
+//       claude: {
+//         configured: !!config.claude.apiKey,
+//         model: config.claude.model,
+//         maxTokens: config.claude.maxTokens,
+//       },
+//     },
+//     mockResponses: config.mockResponses,
+//   });
+// });
 
 // Cloudinary Config endpoint (for testing tool)
 app.get('/api/upload/config', publicLimiter, (req, res) => {
@@ -467,13 +468,15 @@ app.get('/api/upload/config', publicLimiter, (req, res) => {
 
 // Apply rate limiting to API routes
 app.use('/api', apiLimiter);
-app.use('/api/ai', aiLimiter);
+// COMMENT OUT AI rate limiting
+// app.use('/api/ai', aiLimiter);
 
 // Public API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/newsletter', newsletterRoutes);
-app.use('/api/ai', aiRoutes);
+// COMMENT OUT AI routes
+// app.use('/api/ai', aiRoutes);
 
 // Protected API routes
 app.use('/api/loans', loanRoutes);
@@ -672,7 +675,8 @@ app.on('listening', () => {
   console.log(`   CORS Debug: http://localhost:${config.port}/api/debug/cors`);
   console.log(`   Uploads Check: http://localhost:${config.port}/api/debug/uploads`);
   console.log(`   System Info: http://localhost:${config.port}/api/system/info`);
-  console.log(`   AI Status: http://localhost:${config.port}/api/ai/status`);
+  // COMMENT OUT AI endpoints from startup log
+  // console.log(`   AI Status: http://localhost:${config.port}/api/ai/status`);
   console.log(`   Cloudinary Config: http://localhost:${config.port}/api/upload/config`);
   console.log(`   Admin Dashboard: http://localhost:${config.port}/api/admin/dashboard/stats`);
 });
