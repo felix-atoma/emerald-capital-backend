@@ -10,7 +10,10 @@ import config from './config/config.js';
 import errorHandler from './middleware/errorHandler.js';
 import connectDB from './config/database.js';
 
-// Import routes
+// Import AI routes
+import aiRoutes from './routes/ai.routes.js';
+
+// Import other routes
 import authRoutes from './routes/authRoutes.js';
 import loanRoutes from './routes/loanRoutes.js';
 import contactRoutes from './routes/contactRoutes.js';
@@ -44,25 +47,113 @@ if (!fs.existsSync(blogImagesDir)) {
   console.log('📁 Created blog-images directory');
 }
 
-// Security middleware - FIXED HELMET CONFIG
+// Create assets directory for static files
+const assetsDir = path.join(__dirname, 'assets');
+if (!fs.existsSync(assetsDir)) {
+  fs.mkdirSync(assetsDir, { recursive: true });
+  console.log('📁 Created assets directory');
+}
+
+// ==================== SECURITY & CORS CONFIGURATION ====================
+
+// 1. HELMET CONFIGURATION
 app.use(
   helmet({
     contentSecurityPolicy: {
       directives: {
         defaultSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
-        scriptSrc: ["'self'", "'unsafe-inline'"],
-        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
-        imgSrc: ["'self'", 'data:', 'https:', 'blob:'], // REMOVED incorrect /uploads/ syntax
-        connectSrc: ["'self'", config.clientUrl ? config.clientUrl.split(',').map(url => url.trim()) : []],
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "'unsafe-eval'",
+          'https://emeraldcapitalgh.com',
+          'http://emeraldcapitalgh.com',
+          'https://emeraldcapital.com',
+          'http://emeraldcapital.com',
+        ],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+        imgSrc: ["'self'", 'data:', 'blob:', 'https:', 'http:', '*'],
+        connectSrc: ["'self'", 'ws://localhost:*', ...config.cors.origin],
+        frameSrc: ["'self'"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        manifestSrc: ["'self'"],
       },
     },
     crossOriginEmbedderPolicy: false,
-    crossOriginResourcePolicy: { policy: "cross-origin" }, // ADDED for static files
+    crossOriginOpenerPolicy: { policy: 'unsafe-none' },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
   })
 );
 
-// Rate limiting configuration
+// 2. CORS CONFIGURATION
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    // Always allow in development
+    if (config.nodeEnv === 'development') {
+      return callback(null, true);
+    }
+
+    // Check if origin is allowed
+    const allowedOrigins = config.cors.origin;
+    const isAllowed = allowedOrigins.some(allowed => {
+      if (typeof allowed === 'string') return allowed === origin;
+      if (allowed instanceof RegExp) return allowed.test(origin);
+      return false;
+    });
+
+    if (isAllowed) {
+      callback(null, true);
+    } else {
+      console.log(`❌ CORS blocked origin: ${origin}`);
+      callback(new Error(`Not allowed by CORS. Origin: ${origin}`));
+    }
+  },
+  credentials: config.cors.credentials,
+  optionsSuccessStatus: config.cors.optionsSuccessStatus,
+  exposedHeaders: ['Content-Disposition', 'Content-Type', 'Content-Length'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS', 'HEAD'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'X-API-Key',
+  ],
+  preflightContinue: false,
+  maxAge: 86400,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
+
+// 3. STATIC FILES CORS MIDDLEWARE
+app.use((req, res, next) => {
+  const isStaticFile = req.path.match(/\.(js|css|png|jpg|jpeg|gif|ico|svg|webp|woff|woff2|ttf|eot)$/);
+  
+  if (isStaticFile) {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.header('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    
+    if (req.method === 'OPTIONS') {
+      return res.status(200).end();
+    }
+  }
+  
+  next();
+});
+
+// ==================== RATE LIMITING ====================
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 200,
@@ -72,9 +163,9 @@ const apiLimiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => req.path.startsWith('/uploads/') || req.path.startsWith('/assets/'),
 });
 
-// Public endpoints with higher limits
 const publicLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
@@ -82,300 +173,307 @@ const publicLimiter = rateLimit({
     success: false,
     message: 'Too many requests from this IP, please try again later.',
   },
+  skip: (req) => req.path.startsWith('/uploads/') || req.path.startsWith('/assets/'),
 });
 
-// CORS configuration - UPDATED FOR MULTIPLE ORIGINS
-const corsOptions = {
-  origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) {
-      console.log('ℹ️ Request with no origin (server-to-server or curl)');
-      return callback(null, true);
-    }
-    
-    // Parse multiple URLs from config.clientUrl
-    const allowedUrls = config.clientUrl ? 
-      config.clientUrl.split(',').map(url => url.trim()) : [];
-    
-    const allowedOrigins = [
-      ...allowedUrls,
-      'http://localhost:3000',
-      'http://localhost:5173', // Vite dev server
-      'https://emerald-capital.netlify.app',
-      'https://emerald-capital-u8zr.vercel.app',
-      'https://emeraldcapital.com',
-      'https://www.emeraldcapital.com',
-      /\.netlify\.app$/,
-      /\.vercel\.app$/,
-      /\.onrender\.com$/, // Allow Render itself
-    ];
-    
-    // Check if origin matches any allowed pattern
-    const isAllowed = allowedOrigins.some(allowed => {
-      if (typeof allowed === 'string') {
-        return allowed === origin;
-      }
-      if (allowed instanceof RegExp) {
-        return allowed.test(origin);
-      }
-      return false;
-    });
-    
-    // Debug logging
-    if (config.nodeEnv === 'development') {
-      console.log(`🌐 CORS Check - Origin: ${origin}, Allowed: ${isAllowed}`);
-    }
-    
-    // Always allow in development
-    if (config.nodeEnv === 'development') {
-      return callback(null, true);
-    }
-    
-    if (isAllowed) {
-      callback(null, true);
-    } else {
-      console.log(`❌ CORS blocked origin: ${origin}`);
-      console.log(`📋 Allowed origins: ${JSON.stringify(allowedOrigins)}`);
-      callback(new Error(`Not allowed by CORS. Origin: ${origin}`));
-    }
+const aiLimiter = rateLimit({
+  windowMs: config.ai.rateLimit.windowMs,
+  max: config.ai.rateLimit.max,
+  message: {
+    success: false,
+    message: 'AI rate limit exceeded. Please try again later.',
   },
-  credentials: true,
-  optionsSuccessStatus: 200,
-  exposedHeaders: ['Content-Disposition'],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
-};
-
-app.use(cors(corsOptions));
-
-// Preflight requests
-app.options('*', cors(corsOptions));
-
-// GLOBAL CORS MIDDLEWARE FOR STATIC FILES
-app.use((req, res, next) => {
-  // Parse allowed origins from config
-  const allowedUrls = config.clientUrl ? 
-    config.clientUrl.split(',').map(url => url.trim()) : [];
-  
-  const allowedOrigins = [
-    ...allowedUrls,
-    'http://localhost:3000',
-    'http://localhost:5173',
-    'https://emerald-capital.netlify.app',
-    'https://emerald-capital-u8zr.vercel.app',
-    'https://emeraldcapital.com',
-    'https://www.emeraldcapital.com',
-  ];
-  
-  const origin = req.headers.origin;
-  
-  // Check if this is a static file request
-  const isStaticFile = req.path.startsWith('/uploads/') || req.path.startsWith('/blog-images/');
-  
-  if (origin && isStaticFile) {
-    // For static files, be more permissive
-    const isAllowed = allowedOrigins.some(allowed => {
-      if (typeof allowed === 'string') return allowed === origin;
-      if (allowed instanceof RegExp) return allowed.test(origin);
-      return false;
-    });
-    
-    if (isAllowed || config.nodeEnv === 'development') {
-      res.header('Access-Control-Allow-Origin', origin);
-      res.header('Cross-Origin-Resource-Policy', 'cross-origin');
-      res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-      res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-      res.header('Access-Control-Allow-Credentials', 'true');
-    }
-  }
-  
-  next();
+  standardHeaders: true,
+  legacyHeaders: false,
 });
 
-// Body parsing middleware
-app.use(express.json({ 
+// ==================== BODY PARSING ====================
+
+app.use(express.json({
   limit: '10mb',
   verify: (req, res, buf) => {
     req.rawBody = buf;
   }
 }));
 
-app.use(express.urlencoded({ 
-  extended: true, 
+app.use(express.urlencoded({
+  extended: true,
   limit: '10mb',
   parameterLimit: 10000
 }));
 
-// STATIC FILE SERVING WITH CORS - CRITICAL FIX
+// ==================== LOGGING ====================
+
+if (config.nodeEnv === 'development') {
+  app.use(morgan('dev'));
+} else {
+  app.use(morgan('combined', {
+    skip: (req, res) => res.statusCode < 400,
+  }));
+}
+
+// Request info logging middleware
+app.use((req, res, next) => {
+  if (config.nodeEnv === 'development') {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.url} - Origin: ${req.headers.origin || 'No Origin'}`);
+  }
+  next();
+});
+
+// ==================== STATIC FILE SERVING ====================
+
 const staticOptions = {
+  maxAge: '1y',
+  immutable: true,
   setHeaders: (res, filePath) => {
-    // For static files, always set CORS headers
-    const origin = res.getHeader('Access-Control-Allow-Origin');
-    if (!origin) {
-      // If no specific origin set by previous middleware, allow common origins
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    }
-    
-    // Required for cross-origin images
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Length, Content-Type');
     
-    // Set proper content type for images
-    if (filePath.match(/\.jpe?g$/i)) {
-      res.setHeader('Content-Type', 'image/jpeg');
-    } else if (filePath.match(/\.png$/i)) {
-      res.setHeader('Content-Type', 'image/png');
-    } else if (filePath.match(/\.gif$/i)) {
-      res.setHeader('Content-Type', 'image/gif');
-    } else if (filePath.match(/\.svg$/i)) {
-      res.setHeader('Content-Type', 'image/svg+xml');
-    } else if (filePath.match(/\.webp$/i)) {
-      res.setHeader('Content-Type', 'image/webp');
+    if (filePath.endsWith('.js')) {
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+    } else if (filePath.endsWith('.css')) {
+      res.setHeader('Content-Type', 'text/css; charset=utf-8');
     }
     
-    // Cache static files
-    if (filePath.match(/\.(jpg|jpeg|png|gif|webp|svg|css|js)$/)) {
+    if (filePath.match(/\.(js|css|png|jpg|jpeg|gif|ico|svg|webp|woff|woff2|ttf|eot)$/)) {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     }
   }
 };
 
-// Serve uploads with proper CORS - SIMPLIFIED APPROACH
-app.use('/uploads', (req, res, next) => {
-  // Special middleware for uploads - allow all origins for images
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  next();
-}, express.static(path.join(__dirname, 'uploads'), staticOptions));
+// Serve uploads directory
+app.use('/uploads', express.static(uploadsDir, staticOptions));
 
-// Logging middleware
-if (config.nodeEnv === 'development') {
-  app.use(morgan('dev'));
-} else {
-  morgan.token('error-message', (req, res) => res.statusMessage);
-  app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent"', {
-    skip: (req, res) => res.statusCode < 400
-  }));
-}
+// Serve assets directory
+app.use('/assets', express.static(assetsDir, staticOptions));
 
-// Request logging middleware with CORS info
-app.use((req, res, next) => {
-  if (config.nodeEnv === 'development') {
-    console.log(`${req.method} ${req.url} - Origin: ${req.headers.origin || 'No Origin'}`);
-  }
-  next();
-});
+// ==================== DEBUG & DIAGNOSTIC ENDPOINTS ====================
 
-// DEBUG ENDPOINTS
-app.get('/api/cors-debug', publicLimiter, (req, res) => {
-  const allowedUrls = config.clientUrl ? 
-    config.clientUrl.split(',').map(url => url.trim()) : [];
-  
-  res.json({
-    success: true,
-    clientUrl: config.clientUrl,
-    parsedClientUrls: allowedUrls,
-    requestOrigin: req.headers.origin || 'No origin header',
-    nodeEnv: config.nodeEnv,
-    host: req.headers.host,
-    imageBaseUrl: `https://${req.headers.host}/uploads/`,
-    testImageUrl: `https://${req.headers.host}/uploads/blog-images/image-1769592742314-789924026.jpeg`
-  });
-});
-
-app.get('/api/uploads-check', publicLimiter, (req, res) => {
-  const uploadsPath = path.join(__dirname, 'uploads');
-  const blogImagesPath = path.join(__dirname, 'uploads/blog-images');
-  
-  try {
-    const uploadsExists = fs.existsSync(uploadsPath);
-    const blogImagesExists = fs.existsSync(blogImagesPath);
-    
-    const filesInUploads = uploadsExists ? fs.readdirSync(uploadsPath) : [];
-    const filesInBlogImages = blogImagesExists ? fs.readdirSync(blogImagesPath) : [];
-    
-    // Check for the specific problematic file
-    const targetFile = 'image-1769592742314-789924026.jpeg';
-    const fileExists = filesInBlogImages.includes(targetFile);
-    
-    res.json({
-      success: true,
-      uploads: {
-        path: uploadsPath,
-        exists: uploadsExists,
-        files: filesInUploads
-      },
-      blogImages: {
-        path: blogImagesPath,
-        exists: blogImagesExists,
-        files: filesInBlogImages,
-        targetFile: {
-          name: targetFile,
-          exists: fileExists,
-          fullPath: path.join(blogImagesPath, targetFile)
-        }
-      },
-      staticConfig: {
-        uploadsUrl: '/uploads',
-        blogImagesUrl: '/uploads/blog-images'
-      }
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-      stack: config.nodeEnv === 'development' ? error.stack : undefined
-    });
-  }
-});
-
-// Health check
+// Health check endpoint
 app.get('/api/health', publicLimiter, (req, res) => {
   const healthCheck = {
     success: true,
     message: 'Emerald Capital Backend is running',
     timestamp: new Date().toISOString(),
     environment: config.nodeEnv,
-    clientUrl: config.clientUrl,
-    version: process.env.npm_package_version || '1.0.0',
+    version: '1.0.0',
     uptime: process.uptime(),
     memoryUsage: process.memoryUsage(),
-    database: 'connected',
-    allowedOrigins: config.clientUrl ? config.clientUrl.split(',').map(url => url.trim()) : [],
-    staticFiles: {
-      uploadsPath: path.join(__dirname, 'uploads'),
-      corsEnabled: true
+    cors: {
+      enabled: true,
+      origins: config.cors.origin.length,
     }
   };
   res.status(200).json(healthCheck);
 });
 
-// System info route
-app.get('/api/system-info', apiLimiter, (req, res) => {
+// CORS Debug endpoint (for testing tool)
+app.get('/api/debug/cors', publicLimiter, (req, res) => {
+  const origin = req.headers.origin;
+  const protocol = req.protocol;
+  const host = req.headers.host;
+  
+  res.json({
+    success: true,
+    message: 'CORS Debug Information',
+    requestInfo: {
+      origin: origin || 'No Origin Header',
+      protocol: protocol,
+      host: host,
+      userAgent: req.headers['user-agent'],
+    },
+    serverInfo: {
+      environment: config.nodeEnv,
+      port: config.port,
+      nodeVersion: process.version,
+    },
+    corsConfig: {
+      allowedOrigins: config.cors.origin,
+      credentials: config.cors.credentials,
+      staticFilesCors: 'enabled',
+    },
+    staticFiles: {
+      uploadsUrl: `${protocol}://${host}/uploads/`,
+      assetsUrl: `${protocol}://${host}/assets/`,
+      blogImagesUrl: `${protocol}://${host}/uploads/blog-images/`,
+    }
+  });
+});
+
+// Uploads Check endpoint (for testing tool)
+app.get('/api/debug/uploads', publicLimiter, (req, res) => {
+  try {
+    const directories = [
+      { name: 'uploads', path: uploadsDir },
+      { name: 'blog-images', path: blogImagesDir },
+      { name: 'assets', path: assetsDir },
+    ];
+    
+    const results = directories.map(dir => {
+      const exists = fs.existsSync(dir.path);
+      const files = exists ? fs.readdirSync(dir.path) : [];
+      const stats = exists ? fs.statSync(dir.path) : null;
+      
+      return {
+        name: dir.name,
+        path: dir.path,
+        exists: exists,
+        fileCount: files.length,
+        files: files.slice(0, 10),
+        totalFiles: files.length,
+        size: stats ? `${(stats.size / 1024 / 1024).toFixed(2)} MB` : 'N/A',
+      };
+    });
+    
+    // Create a test file if it doesn't exist
+    const testFilePath = path.join(uploadsDir, 'test-cors.txt');
+    if (!fs.existsSync(testFilePath)) {
+      fs.writeFileSync(testFilePath, 'This is a test file for CORS verification.\nUploads directory is working correctly.');
+    }
+    
+    res.json({
+      success: true,
+      message: 'Uploads directory check',
+      timestamp: new Date().toISOString(),
+      directories: results,
+      testFiles: {
+        textFile: `${req.protocol}://${req.headers.host}/uploads/test-cors.txt`,
+      },
+      instructions: 'Try accessing the test files to verify CORS is working',
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Error checking uploads directory',
+      error: error.message,
+      stack: config.nodeEnv === 'development' ? error.stack : undefined,
+    });
+  }
+});
+
+// System Info endpoint
+app.get('/api/system/info', apiLimiter, (req, res) => {
   const systemInfo = {
-    nodeVersion: process.version,
-    platform: process.platform,
-    memory: process.memoryUsage(),
-    cpuUsage: process.cpuUsage(),
-    env: config.nodeEnv,
-    clientUrl: config.clientUrl,
-    pid: process.pid,
-    uptime: process.uptime(),
+    server: {
+      nodeVersion: process.version,
+      platform: process.platform,
+      architecture: process.arch,
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      cpuUsage: process.cpuUsage(),
+      pid: process.pid,
+      environment: config.nodeEnv,
+    },
+    process: {
+      cwd: process.cwd(),
+      versions: process.versions,
+    },
+    directories: {
+      root: __dirname,
+      uploads: uploadsDir,
+      assets: assetsDir,
+      blogImages: blogImagesDir,
+    },
+    config: {
+      port: config.port,
+      clientUrl: config.clientUrl,
+      corsOrigins: config.cors.origin,
+      aiServices: config.getAvailableAIServices(),
+    },
   };
+  
   res.status(200).json({
     success: true,
     data: systemInfo,
   });
 });
 
+// Quick Test endpoint
+app.get('/api/test/quick', publicLimiter, (req, res) => {
+  res.json({
+    success: true,
+    message: 'Quick test endpoint',
+    endpoints: {
+      health: '/api/health',
+      corsDebug: '/api/debug/cors',
+      uploadsCheck: '/api/debug/uploads',
+      systemInfo: '/api/system/info',
+    },
+    server: {
+      environment: config.nodeEnv,
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+    },
+    instructions: 'Use these endpoints to verify server functionality',
+  });
+});
+
+// AI Status endpoint
+app.get('/api/ai/status', publicLimiter, (req, res) => {
+  const aiStatus = config.getAIServiceStatus();
+  
+  res.json({
+    success: true,
+    ai: aiStatus,
+    configuration: {
+      defaultService: config.ai.defaultService,
+      temperature: config.ai.temperature,
+      maxTokens: config.ai.maxTokens,
+      rateLimit: config.ai.rateLimit,
+    },
+    services: {
+      openai: {
+        configured: !!config.openai.apiKey,
+        model: config.openai.model,
+        maxTokens: config.openai.maxTokens,
+      },
+      gemini: {
+        configured: !!config.gemini.apiKey,
+        model: config.gemini.model,
+      },
+      claude: {
+        configured: !!config.claude.apiKey,
+        model: config.claude.model,
+        maxTokens: config.claude.maxTokens,
+      },
+    },
+    mockResponses: config.mockResponses,
+  });
+});
+
+// Cloudinary Config endpoint (for testing tool)
+app.get('/api/upload/config', publicLimiter, (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      cloudinary: {
+        configured: !!(config.cloudinary.cloudName && config.cloudinary.apiKey && config.cloudinary.apiSecret),
+        cloud_name: config.cloudinary.cloudName || null,
+        api_key: config.cloudinary.apiKey ? '••••' + config.cloudinary.apiKey.slice(-4) : null,
+        upload_preset: config.cloudinary.uploadPreset,
+      },
+      upload: {
+        path: config.upload.path,
+        maxFileSize: config.upload.maxFileSize,
+        allowedImageTypes: config.upload.allowedImageTypes,
+        allowedFileTypes: config.upload.allowedFileTypes,
+      }
+    }
+  });
+});
+
+// ==================== API ROUTES ====================
+
 // Apply rate limiting to API routes
 app.use('/api', apiLimiter);
+app.use('/api/ai', aiLimiter);
 
 // Public API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/newsletter', newsletterRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Protected API routes
 app.use('/api/loans', loanRoutes);
@@ -385,22 +483,138 @@ app.use('/api/blogs', blogRoutes);
 app.use('/api/categories', categoryRoutes);
 app.use('/api/upload', uploadRoutes);
 
-// Serve static files in production
+// ==================== ADMIN DASHBOARD ENDPOINT ====================
+
+// Add this dashboard endpoint if your adminRoutes doesn't have it
+app.get('/api/admin/dashboard/stats', apiLimiter, async (req, res) => {
+  try {
+    // Import models
+    const User = (await import('./models/User.js')).default;
+    const Loan = (await import('./models/Loan.js')).default;
+    const Blog = (await import('./models/Blog.js')).default;
+    const Contact = (await import('./models/Contact.js')).default;
+    
+    // Get counts
+    const [
+      totalUsers,
+      activeUsers,
+      newUsersToday,
+      totalLoans,
+      pendingLoans,
+      approvedLoans,
+      rejectedLoans,
+      totalBlogs,
+      publishedBlogs,
+      draftBlogs,
+      recentContacts,
+    ] = await Promise.all([
+      User.countDocuments(),
+      User.countDocuments({ status: 'active' }),
+      User.countDocuments({ 
+        createdAt: { 
+          $gte: new Date(new Date().setHours(0, 0, 0, 0)) 
+        } 
+      }),
+      Loan.countDocuments(),
+      Loan.countDocuments({ status: 'pending' }),
+      Loan.countDocuments({ status: 'approved' }),
+      Loan.countDocuments({ status: 'rejected' }),
+      Blog.countDocuments(),
+      Blog.countDocuments({ status: 'published' }),
+      Blog.countDocuments({ status: 'draft' }),
+      Contact.countDocuments({
+        createdAt: { 
+          $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) 
+        }
+      }),
+    ]);
+    
+    // Get loan amount total
+    const loanAmountAgg = await Loan.aggregate([
+      { $match: { status: 'approved' } },
+      { $group: { _id: null, totalAmount: { $sum: '$amount' } } }
+    ]);
+    
+    // Get blog views total
+    const blogViewsAgg = await Blog.aggregate([
+      { $group: { _id: null, totalViews: { $sum: '$views' } } }
+    ]);
+    
+    const dashboardStats = {
+      users: {
+        total: totalUsers,
+        active: activeUsers,
+        newToday: newUsersToday,
+        growth: totalUsers > 0 ? ((activeUsers / totalUsers) * 100).toFixed(1) : 0
+      },
+      loans: {
+        total: totalLoans,
+        pending: pendingLoans,
+        approved: approvedLoans,
+        rejected: rejectedLoans,
+        totalAmount: loanAmountAgg[0]?.totalAmount || 0
+      },
+      blogs: {
+        total: totalBlogs,
+        published: publishedBlogs,
+        drafts: draftBlogs,
+        views: blogViewsAgg[0]?.totalViews || 0
+      },
+      activity: {
+        contactMessages: recentContacts,
+        timestamp: new Date().toISOString()
+      }
+    };
+    
+    res.json({
+      success: true,
+      message: 'Dashboard statistics retrieved successfully',
+      data: dashboardStats
+    });
+    
+  } catch (error) {
+    console.error('Dashboard stats error:', error);
+    
+    // Return fallback data on error
+    res.json({
+      success: true,
+      message: 'Dashboard statistics (using fallback)',
+      data: {
+        users: { total: 0, active: 0, newToday: 0, growth: 0 },
+        loans: { total: 0, pending: 0, approved: 0, rejected: 0, totalAmount: 0 },
+        blogs: { total: 0, published: 0, drafts: 0, views: 0 },
+        activity: { contactMessages: 0 },
+        note: 'Using fallback data due to database error'
+      },
+      warning: 'Could not fetch real-time statistics'
+    });
+  }
+});
+
+// ==================== CLIENT SPA SERVING ====================
+
 if (config.nodeEnv === 'production') {
   const clientBuildPath = path.join(__dirname, '../../client/build');
   
   if (fs.existsSync(clientBuildPath)) {
+    console.log(`🚀 Serving client build from: ${clientBuildPath}`);
+    
     app.use(express.static(clientBuildPath, {
       maxAge: '1d',
       setHeaders: (res, filePath) => {
-        if (filePath.match(/\.(js|css|png|jpg|jpeg|gif|ico|svg)$/)) {
-          res.set('Cache-Control', 'public, max-age=86400');
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        
+        if (filePath.match(/\.(js|css)$/)) {
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         }
       }
     }));
 
     app.get('*', (req, res, next) => {
-      if (req.path.startsWith('/api/')) {
+      if (req.path.startsWith('/api/') || 
+          req.path.startsWith('/uploads/') || 
+          req.path.startsWith('/assets/')) {
         return next();
       }
       
@@ -408,34 +622,61 @@ if (config.nodeEnv === 'production') {
         return next();
       }
       
-      res.sendFile(path.resolve(clientBuildPath, 'index.html'));
+      res.sendFile(path.join(clientBuildPath, 'index.html'), (err) => {
+        if (err) {
+          console.error('Error serving index.html:', err);
+          next(err);
+        }
+      });
     });
+  } else {
+    console.log('⚠️  Client build directory not found:', clientBuildPath);
   }
 }
 
-// Handle 404
-app.all('*', (req, res) => {
+// ==================== ERROR HANDLING ====================
+
+// 404 Handler
+app.use((req, res, next) => {
   res.status(404).json({
     success: false,
-    message: `Route ${req.originalUrl} not found on this server`,
-    method: req.method,
-    timestamp: new Date().toISOString(),
-    origin: req.headers.origin || 'No Origin',
-    suggestion: 'Check the API documentation or ensure the endpoint exists',
+    error: {
+      code: 'NOT_FOUND',
+      message: `Cannot ${req.method} ${req.originalUrl}`,
+      timestamp: new Date().toISOString(),
+    },
+    request: {
+      method: req.method,
+      url: req.originalUrl,
+      origin: req.headers.origin,
+      protocol: req.protocol,
+    },
+    availableEndpoints: {
+      api: '/api/*',
+      static: ['/uploads/*', '/assets/*'],
+      health: '/api/health',
+      debug: '/api/debug/cors',
+    },
   });
 });
 
-// Global error handling middleware
+// Global error handler
 app.use(errorHandler);
 
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
+// ==================== SERVER STARTUP LOG ====================
+
+app.on('listening', () => {
+  console.log('\n✅ Emerald Capital Server Started!');
+  console.log('📊 Available endpoints:');
+  console.log(`   Health Check: http://localhost:${config.port}/api/health`);
+  console.log(`   CORS Debug: http://localhost:${config.port}/api/debug/cors`);
+  console.log(`   Uploads Check: http://localhost:${config.port}/api/debug/uploads`);
+  console.log(`   System Info: http://localhost:${config.port}/api/system/info`);
+  console.log(`   AI Status: http://localhost:${config.port}/api/ai/status`);
+  console.log(`   Cloudinary Config: http://localhost:${config.port}/api/upload/config`);
+  console.log(`   Admin Dashboard: http://localhost:${config.port}/api/admin/dashboard/stats`);
 });
 
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-});
+// ==================== EXPORT ====================
 
 export default app;
